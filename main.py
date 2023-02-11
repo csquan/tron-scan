@@ -18,8 +18,25 @@ session = Session()
 Base = declarative_base()
 
 
-class Transaction(Base):
-    __tablename__ = 'transaction'
+class NormalTransaction(Base):
+    __tablename__ = 'normal_transaction'
+
+    id = Column(Integer, primary_key=True)
+
+    hash = Column(String(64), nullable=False, index=True)
+    block = Column(Integer, nullable=False, index=False)
+    fromAddr = Column(String(64), nullable=False, index=False)
+    toAddr = Column(String(64), nullable=False, index=False)
+    block_at = Column(String(64), nullable=False, index=False)
+    amount = Column(Integer, nullable=False, index=False)
+    symbol = Column(String(32), nullable=False, index=False)
+
+    def __repr__(self):
+        return '%s(%r)' % (self.__class__.__name__, self.hash)
+
+
+class TRC20Transaction(Base):
+    __tablename__ = 'trc20_transaction'
 
     id = Column(Integer, primary_key=True)
 
@@ -34,29 +51,6 @@ class Transaction(Base):
 
     def __repr__(self):
         return '%s(%r)' % (self.__class__.__name__, self.hash)
-
-
-class Storage:
-    def __init__(self):
-        self.db = pymysql.connect(host='localhost',
-                                  port=3306,
-                                  user='root',
-                                  password='**',
-                                  database='xh')
-
-        self.cursor = self.db.cursor()
-
-        cur = self.db.cursor()
-        cur.execute("CREATE TABLE IF NOT EXISTS scores(score INT)")
-
-    def insert_a_item(self):
-        SQL_INSERT_A_ITEM = "INSERT INTO PEOPLE(name,age) VALUES('xag',23);"
-        try:
-            self.cursor.execute(SQL_INSERT_A_ITEM)
-            self.db.commit()
-        except Exception as e:
-            print(e)
-            self.db.rollback()
 
 
 def Init():
@@ -132,69 +126,80 @@ def handleThread(blocksnum, delay=0):
     with open("%s/data/%s.csv" % (os.getcwd(), blocksnum), "w", newline='') as f:
         writer = csv.writer(f)
         for transaction in transactionsData['transactions']:
-            try:
-                contract = transaction['raw_data']['contract'][0]['parameter']['value']['contract_address']
-                contract = keys.to_base58check_address(contract)
-                active_contract = []
-                for temp in ContactArray:
-                    if temp[0] == contract:
-                        active_contract = temp
-                if len(active_contract) == 0:
+            if 'contract_address' in transaction['raw_data']['contract'][0]['parameter']['value']:
+                try:
+                    contract = transaction['raw_data']['contract'][0]['parameter']['value']['contract_address']
+                    contract = keys.to_base58check_address(contract)
+                    active_contract = []
+                    for temp in ContactArray:
+                        if temp[0] == contract:
+                            active_contract = temp
+                    if len(active_contract) == 0:
+                        continue
+                except Exception as e:
+                    print('错误:', e)
                     continue
-            except:
-                continue
-            func = transaction['raw_data']["contract"][0]["parameter"]["value"]["data"][0:8]
-            if func != "a9059cbb":
-                continue
-            try:
-                transactionAmount = int(
-                    transaction['raw_data']["contract"][0]["parameter"]["value"]["data"][72:].lstrip("0"), 16) / (
-                                            1 * math.pow(10, int(active_contract[2])))
-            except:
-                continue
-            from_address = keys.to_base58check_address(
-                transaction['raw_data']['contract'][0]['parameter']['value']['owner_address'])
-            to_address = keys.to_base58check_address(
-                transaction['raw_data']["contract"][0]["parameter"]["value"]["data"][9:72].lstrip("0"))
-            transaction_data = [
-                transaction['txID'],
-                blocksnum,
-                from_address,
-                to_address,
-                transaction_at,
-                transactionAmount,
-                contract,
-                transaction['ret'][0]['contractRet'].lower()
-            ]
-            # write to mysql
-            tx = Transaction(
-                hash=transaction['txID'],
-                block=blocksnum,
-                fromAddr=from_address,
-                toAddr=to_address,
-                block_at=transaction_at,
-                amount=transactionAmount,
-                contract_address=contract,
-                status=transaction['ret'][0]['contractRet'].lower(),
-            )
+                func = transaction['raw_data']["contract"][0]["parameter"]["value"]["data"][0:8]
+                if func != "a9059cbb":
+                    continue
+                try:
+                    transactionAmount = int(
+                        transaction['raw_data']["contract"][0]["parameter"]["value"]["data"][72:].lstrip("0"), 16) / (
+                                                1 * math.pow(10, int(active_contract[2])))
+                except:
+                    continue
+                from_address = keys.to_base58check_address(
+                    transaction['raw_data']['contract'][0]['parameter']['value']['owner_address'])
+                to_address = keys.to_base58check_address(
+                    transaction['raw_data']["contract"][0]["parameter"]["value"]["data"][9:72].lstrip("0"))
+                transaction_data = [
+                    transaction['txID'],
+                    blocksnum,
+                    from_address,
+                    to_address,
+                    transaction_at,
+                    transactionAmount,
+                    contract,
+                    transaction['ret'][0]['contractRet'].lower()
+                ]
+                # write to mysql
+                t20tx = TRC20Transaction(
+                    hash=transaction['txID'],
+                    block=blocksnum,
+                    fromAddr=from_address,
+                    toAddr=to_address,
+                    block_at=transaction_at,
+                    amount=transactionAmount,
+                    contract_address=contract,
+                    status=transaction['ret'][0]['contractRet'].lower(),
+                )
+                session.add(t20tx)
+                session.commit()
 
-            session.add(tx)
+                # writer.writerow(transaction_data)
 
-            session.commit()
+                for wallet in WalletArray:
+                    if to_address == wallet[0]:
+                        with open(os.getcwd() + "/config/transaction.csv", "a", newline='') as f_transaction:
+                            writer_transaction = csv.writer(f_transaction)
+                            writer_transaction.writerow(transaction_data)
+            else:
+                tx_detail = transaction['raw_data']['contract'][0]['parameter']['value']
+                # write to mysql
+                normal_tx = NormalTransaction(
+                    hash=transaction['txID'],
+                    block=blocksnum,
+                    fromAddr=tx_detail["owner_address"],
+                    toAddr=tx_detail["to_address"],
+                    block_at=transaction_at,
+                    amount=tx_detail['amount'],
+                    symbol="trx",
+                )
+                session.add(normal_tx)
+                session.commit()
 
-            writer.writerow(transaction_data)
 
-            for wallet in WalletArray:
-                if to_address == wallet[0]:
-                    with open(os.getcwd() + "/config/transaction.csv", "a", newline='') as f_transaction:
-                        writer_transaction = csv.writer(f_transaction)
-                        writer_transaction.writerow(transaction_data)
-
-
-has_table = engine.dialect.has_table(engine.connect(), f"transaction")
-if not has_table:
-    Base.metadata.create_all(engine)
-    print(f"首次运行，建立表成功.")
+Base.metadata.create_all(engine, checkfirst=True)
 
 Init()
 

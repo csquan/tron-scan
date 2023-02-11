@@ -1,4 +1,6 @@
 pycryptodomex
-base58
-ecdsa
-requests
+mysqlclient
+base58~=2.1.1
+ecdsa~=0.18.0
+requests~=2.28.2
+SQLAlchemy~=2.0.3

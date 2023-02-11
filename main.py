@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import csv
 import math
 import os.path
@@ -5,15 +6,65 @@ from tronapi.tronapi import Tronapi
 from vendor.ThreadPool import ThreadPool, WorkRequest
 import time
 from tronapi import keys
-import datetime
+from sqlalchemy import create_engine
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy import Column, String, Integer
+from sqlalchemy.orm import sessionmaker
+
+engine = create_engine('mysql+mysqldb://root:csquan253905@localhost:3306/TronBlock')
+Session = sessionmaker(bind=engine)
+session = Session()
+
+Base = declarative_base()
+
+
+class Transaction(Base):
+    __tablename__ = 'transaction'
+
+    id = Column(Integer, primary_key=True)
+
+    hash = Column(String(64), nullable=False, index=True)
+    block = Column(Integer, nullable=False, index=False)
+    fromAddr = Column(String(64), nullable=False, index=False)
+    toAddr = Column(String(64), nullable=False, index=False)
+    block_at = Column(String(64), nullable=False, index=False)
+    amount = Column(Integer, nullable=False, index=False)
+    contract_address = Column(String(64), nullable=False, index=False)
+    status = Column(String(64), nullable=False, index=False)
+
+    def __repr__(self):
+        return '%s(%r)' % (self.__class__.__name__, self.hash)
+
+
+class Storage:
+    def __init__(self):
+        self.db = pymysql.connect(host='localhost',
+                                  port=3306,
+                                  user='root',
+                                  password='**',
+                                  database='xh')
+
+        self.cursor = self.db.cursor()
+
+        cur = self.db.cursor()
+        cur.execute("CREATE TABLE IF NOT EXISTS scores(score INT)")
+
+    def insert_a_item(self):
+        SQL_INSERT_A_ITEM = "INSERT INTO PEOPLE(name,age) VALUES('xag',23);"
+        try:
+            self.cursor.execute(SQL_INSERT_A_ITEM)
+            self.db.commit()
+        except Exception as e:
+            print(e)
+            self.db.rollback()
 
 
 def Init():
     DirectoryArray = ['config', 'data']
     for directory in DirectoryArray:
         path = os.getcwd() + "/" + directory
-        if not os.path.exists(path):  # 判断是否存在文件夹如果不存在则创建为文件夹
-            os.makedirs(path)  # makedirs 创建文件时如果路径不存在会创建这个路径
+        if not os.path.exists(path):
+            os.makedirs(path)
         pass
     # if not os.path.exists(os.getcwd() + "/config/template_block.csv"):
     #     with open(os.getcwd() + "/config/template_block.csv", "w", newline='') as f:
@@ -36,7 +87,7 @@ def Init():
     if not os.path.exists(os.getcwd() + "/config/transaction.csv"):
         with open(os.getcwd() + "/config/transaction.csv", "w", newline='') as f:
             writer = csv.writer(f)
-            writer.writerow(["hash", "block", "from", "to", "block_at", "amount", "contract_address",'status'])
+            writer.writerow(["hash", "block", "from", "to", "block_at", "amount", "contract_address", 'status'])
         pass
 
 
@@ -115,6 +166,21 @@ def handleThread(blocksnum, delay=0):
                 contract,
                 transaction['ret'][0]['contractRet'].lower()
             ]
+            # write to mysql
+            tx = Transaction(
+                hash=transaction['txID'],
+                block=blocksnum,
+                fromAddr=from_address,
+                toAddr=to_address,
+                block_at=transaction_at,
+                amount=transactionAmount,
+                contract_address=contract,
+                status=transaction['ret'][0]['contractRet'].lower(),
+            )
+
+            session.add(tx)
+
+            session.commit()
 
             writer.writerow(transaction_data)
 
@@ -124,6 +190,11 @@ def handleThread(blocksnum, delay=0):
                         writer_transaction = csv.writer(f_transaction)
                         writer_transaction.writerow(transaction_data)
 
+
+has_table = engine.dialect.has_table(engine.connect(), f"transaction")
+if not has_table:
+    Base.metadata.create_all(engine)
+    print(f"首次运行，建立表成功.")
 
 Init()
 

@@ -164,3 +164,11 @@ class Tronapi(object):
     def request(self, action: str, data: None):
         response = requests.post(self.conf['fullnode'] + action, json=data)
         return response.json()
+
+    @staticmethod
+    def from_hex(address):
+        """Helper function that will convert a generic value from hex"""
+        if not is_hex(address):
+            return address
+
+        return base58.b58encode_check(bytes.fromhex(address))

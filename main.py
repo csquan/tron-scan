@@ -6,6 +6,7 @@ import codecs
 from tronapi.tronapi import Tronapi
 from vendor.ThreadPool import ThreadPool, WorkRequest
 import time
+import base58
 from tronapi import keys
 from sqlalchemy import create_engine
 from sqlalchemy.ext.declarative import declarative_base
@@ -125,16 +126,14 @@ def parseAndStore(logdata):
                 continue
             fromaddr = log["topics"][1]
             toaddr = log["topics"][2]
-            fromaddr = "T" + fromaddr[24:]
-            toaddr = "T" + toaddr[24:]
-            fromaddr = tron.address.from_hex(fromaddr)
-            toaddr = tron.address.from_hex(toaddr)
-            print(fromaddr)
-            print(toaddr)
+            fromaddr = "41" + fromaddr[24:]
+            toaddr = "41" + toaddr[24:]
+            fromaddr = base58.b58encode_check(bytes.fromhex(fromaddr))
+            toaddr = base58.b58encode_check(bytes.fromhex(toaddr))
 
             val = decode_hex(log["data"][24:])
-            print(val)
-            print(val)
+            amount = int.from_bytes(val[0], byteorder='big')
+
         print(log["receipt"])
 
 

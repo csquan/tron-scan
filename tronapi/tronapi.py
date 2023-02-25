@@ -139,6 +139,10 @@ class Tronapi(object):
         response = self.request(action="/walletsolidity/getblockbynum", data={'num': num})
         return response
 
+    def getTxInfoByNum(self,num ):
+        response = self.request(action="/walletsolidity/gettransactioninfobyblocknum", data={'num': num})
+        return response
+
     def build(self, action: str, data: None):
         response = self.request(action, data=data)
         if response.get("Error"):

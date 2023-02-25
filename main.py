@@ -2,6 +2,7 @@
 import csv
 import math
 import os.path
+import codecs
 from tronapi.tronapi import Tronapi
 from vendor.ThreadPool import ThreadPool, WorkRequest
 import time
@@ -10,6 +11,10 @@ from sqlalchemy import create_engine
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy import Column, String, Integer
 from sqlalchemy.orm import sessionmaker
+
+decode_hex = codecs.getdecoder("hex_codec")
+
+TransferTopic = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
 
 engine = create_engine('mysql+mysqldb://root:csquan253905@localhost:3306/TronBlock')
 Session = sessionmaker(bind=engine)
@@ -104,9 +109,40 @@ def GetContactArray():
             contract_array.append(row)
     return contract_array
 
+def parseAndStore(logdata):
+    for logs in logdata:
+        if logs["receipt"]["result"] != "SUCCESS":
+           continue
+        for log in logs["log"]:
+            if len(log["topics"]) != 3:
+               continue
+            if len(log["topics"][0]) != 64 or len(log["topics"][1]) != 64 or len(log["topics"][2]) != 64:
+               continue
+            contractaddr = log["address"]
+            if log["topics"][0][0:2] != "0x":
+                log["topics"][0] = "0x" + log["topics"][0]
+            if log["topics"][0] != TransferTopic:
+                continue
+            fromaddr = log["topics"][1]
+            toaddr = log["topics"][2]
+            fromaddr = "T" + fromaddr[24:]
+            toaddr = "T" + toaddr[24:]
+            fromaddr = tron.address.from_hex(fromaddr)
+            toaddr = tron.address.from_hex(toaddr)
+            print(fromaddr)
+            print(toaddr)
+
+            val = decode_hex(log["data"][24:])
+            print(val)
+            print(val)
+        print(log["receipt"])
+
+
+
 
 def handleThread(blocksnum, delay=0):
     time.sleep(delay)
+    blocksnum = 48896576
     print(blocksnum)
     tronapi = Tronapi()
     try:
@@ -121,6 +157,10 @@ def handleThread(blocksnum, delay=0):
         return
     if transactionsData.get("transactions") is None:
         return
+    # 取log数据并存储db
+    logData = tronapi.getTxInfoByNum(blocksnum)
+    parseAndStore(logData)
+
     ContactArray = GetContactArray()
     WalletArray = GetWalletArray()
     with open("%s/data/%s.csv" % (os.getcwd(), blocksnum), "w", newline='') as f:

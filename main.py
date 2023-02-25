@@ -23,9 +23,23 @@ session = Session()
 
 Base = declarative_base()
 
+class TransactionLog(Base):
+    __tablename__ = 'f_tx_log'
+
+    id = Column(Integer, primary_key=True)
+
+    hash = Column(String(64), nullable=False, index=True)
+    fromAddr = Column(String(64), nullable=False, index=False)
+    toAddr = Column(String(64), nullable=False, index=False)
+    contractAddr = Column(String(64), nullable=False, index=False)
+    amount = Column(String(128), nullable=False, index=False)
+    index = Column(Integer, nullable=False, index=False)
+
+    def __repr__(self):
+        return '%s(%r)' % (self.__class__.__name__, self.hash)
 
 class NormalTransaction(Base):
-    __tablename__ = 'normal_transaction'
+    __tablename__ = 'f_tx'
 
     id = Column(Integer, primary_key=True)
 
@@ -42,7 +56,7 @@ class NormalTransaction(Base):
 
 
 class TRC20Transaction(Base):
-    __tablename__ = 'trc20_transaction'
+    __tablename__ = 'f_trc20_tx'
 
     id = Column(Integer, primary_key=True)
 
@@ -111,9 +125,16 @@ def GetContactArray():
     return contract_array
 
 def parseAndStore(logdata):
-    for logs in logdata:
+    for obj in enumerate(logdata):
+        idx = obj[0]
+        logs = obj[1]
+        print(idx)
+        if "result" not in logs["receipt"]:
+            continue
         if logs["receipt"]["result"] != "SUCCESS":
            continue
+        if "log" not in logs:
+            continue
         for log in logs["log"]:
             if len(log["topics"]) != 3:
                continue
@@ -134,8 +155,15 @@ def parseAndStore(logdata):
             val = decode_hex(log["data"][24:])
             amount = int.from_bytes(val[0], byteorder='big')
 
-        print(log["receipt"])
-
+            txlog = TransactionLog(
+                hash=logs["id"],
+                fromAddr=fromaddr,
+                toAddr=toaddr,
+                contractAddr=contractaddr,
+                amount=str(amount),
+                index=idx,
+            )
+            session.add(txlog)
 
 
 
@@ -158,7 +186,13 @@ def handleThread(blocksnum, delay=0):
         return
     # 取log数据并存储db
     logData = tronapi.getTxInfoByNum(blocksnum)
-    parseAndStore(logData)
+    try:
+        parseAndStore(logData)
+    except Exception as e:
+        print(e)
+        return
+
+    session.commit()
 
     ContactArray = GetContactArray()
     WalletArray = GetWalletArray()

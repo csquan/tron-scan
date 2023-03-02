@@ -23,22 +23,18 @@ session = Session()
 
 Base = declarative_base()
 
-class TransactionLog(Base):
-    __tablename__ = 'f_tx_log'
+# class async_tasks(Base):
+#     __tablename__ = 'f_async_task'
+#
+#     id = Column(Integer, primary_key=True)
+#
+#     num = Column(Integer(64), nullable=False, index=True)
+#     name = Column(String(64), nullable=False, index=False)
+#
+#     def __repr__(self):
+#         return '%s(%r)' % (self.__class__.__name__, self.name)
 
-    id = Column(Integer, primary_key=True)
-
-    hash = Column(String(64), nullable=False, index=True)
-    fromAddr = Column(String(64), nullable=False, index=False)
-    toAddr = Column(String(64), nullable=False, index=False)
-    contractAddr = Column(String(64), nullable=False, index=False)
-    amount = Column(String(128), nullable=False, index=False)
-    index = Column(Integer, nullable=False, index=False)
-
-    def __repr__(self):
-        return '%s(%r)' % (self.__class__.__name__, self.hash)
-
-class NormalTransaction(Base):
+class Transaction(Base):
     __tablename__ = 'f_tx'
 
     id = Column(Integer, primary_key=True)
@@ -65,7 +61,7 @@ class TRC20Transaction(Base):
     fromAddr = Column(String(64), nullable=False, index=False)
     toAddr = Column(String(64), nullable=False, index=False)
     block_at = Column(String(64), nullable=False, index=False)
-    amount = Column(Integer, nullable=False, index=False)
+    amount = Column(String(64), nullable=False, index=False)
     contract_address = Column(String(64), nullable=False, index=False)
     status = Column(String(64), nullable=False, index=False)
 
@@ -124,7 +120,7 @@ def GetContactArray():
             contract_array.append(row)
     return contract_array
 
-def parseTxLog(logdata):
+def parseTxLog(logdata,blocksnum,transaction_at):
     count =0
     list = []
     for obj in enumerate(logdata):
@@ -157,15 +153,17 @@ def parseTxLog(logdata):
             val = decode_hex(log["data"][24:])
             amount = int.from_bytes(val[0], byteorder='big')
 
-            txlog = TransactionLog(
+            t20tx = TRC20Transaction(
                 hash=logs["id"],
+                block=blocksnum,
                 fromAddr=fromaddr,
                 toAddr=toaddr,
-                contractAddr=contractaddr,
+                block_at=transaction_at,
                 amount=str(amount),
-                index=idx,
+                contract_address=contractaddr,
+                status=1,
             )
-            list.append(txlog)
+            list.append(t20tx)
             count = count + 1
     print(count)
     return list
@@ -193,89 +191,41 @@ def handleThread(blocksnum, delay=0):
     # 取log数据并存储db
     logData = tronapi.getTxInfoByNum(blocksnum)
     try:
-        loglist = parseTxLog(logData)
+        loglist = parseTxLog(logData, blocksnum, transaction_at)
         session.add_all(loglist)
         session.commit()
     except Exception as e:
         print(e)
         return
 
-    ContactArray = GetContactArray()
-    WalletArray = GetWalletArray()
-    with open("%s/data/%s.csv" % (os.getcwd(), blocksnum), "w", newline='') as f:
-        writer = csv.writer(f)
-        for transaction in transactionsData['transactions']:
-            if 'contract_address' in transaction['raw_data']['contract'][0]['parameter']['value']:
-                try:
-                    contract = transaction['raw_data']['contract'][0]['parameter']['value']['contract_address']
-                    contract = keys.to_base58check_address(contract)
-                    active_contract = []
-                    for temp in ContactArray:
-                        if temp[0] == contract:
-                            active_contract = temp
-                    if len(active_contract) == 0:
-                        continue
-                except Exception as e:
-                    print('错误:', e)
-                    continue
-                func = transaction['raw_data']["contract"][0]["parameter"]["value"]["data"][0:8]
-                if func != "a9059cbb":
-                    continue
-                try:
-                    transactionAmount = int(
-                        transaction['raw_data']["contract"][0]["parameter"]["value"]["data"][72:].lstrip("0"), 16) / (
-                                                1 * math.pow(10, int(active_contract[2])))
-                except:
-                    continue
-                from_address = keys.to_base58check_address(
-                    transaction['raw_data']['contract'][0]['parameter']['value']['owner_address'])
-                to_address = keys.to_base58check_address(
-                    transaction['raw_data']["contract"][0]["parameter"]["value"]["data"][9:72].lstrip("0"))
-                transaction_data = [
-                    transaction['txID'],
-                    blocksnum,
-                    from_address,
-                    to_address,
-                    transaction_at,
-                    transactionAmount,
-                    contract,
-                    transaction['ret'][0]['contractRet'].lower()
-                ]
-                # write to mysql
-                t20tx = TRC20Transaction(
-                    hash=transaction['txID'],
-                    block=blocksnum,
-                    fromAddr=from_address,
-                    toAddr=to_address,
-                    block_at=transaction_at,
-                    amount=transactionAmount,
-                    contract_address=contract,
-                    status=transaction['ret'][0]['contractRet'].lower(),
-                )
-                session.add(t20tx)
-                session.commit()
-
-                # writer.writerow(transaction_data)
-
-                for wallet in WalletArray:
-                    if to_address == wallet[0]:
-                        with open(os.getcwd() + "/config/transaction.csv", "a", newline='') as f_transaction:
-                            writer_transaction = csv.writer(f_transaction)
-                            writer_transaction.writerow(transaction_data)
-            else:
-                tx_detail = transaction['raw_data']['contract'][0]['parameter']['value']
-                # write to mysql
-                normal_tx = NormalTransaction(
-                    hash=transaction['txID'],
-                    block=blocksnum,
-                    fromAddr=tx_detail["owner_address"],
-                    toAddr=tx_detail["to_address"],
-                    block_at=transaction_at,
-                    amount=tx_detail['amount'],
-                    symbol="trx",
-                )
-                session.add(normal_tx)
-                session.commit()
+    # ContactArray = GetContactArray()
+    # WalletArray = GetWalletArray()
+    txlist = []
+    for transaction in transactionsData['transactions']:
+        tx_detail = transaction['raw_data']['contract'][0]['parameter']['value']
+        toAddr = ""
+        transactionAmount = ""
+        if 'contract_address' in transaction['raw_data']['contract'][0]['parameter']['value']:
+            toAddr = keys.to_base58check_address(tx_detail["contract_address"])
+            transactionAmount = int(
+                transaction['raw_data']["contract"][0]["parameter"]["value"]["data"][72:].lstrip("0"), 16) / (
+                                        1 * math.pow(10, int(active_contract[2])))
+        else:
+            toAddr = keys.to_base58check_address(tx_detail["to_address"])
+            transactionAmount = tx_detail['amount']
+        # write to mysql
+        tx = Transaction(
+            hash=transaction['txID'],
+            block=blocksnum,
+            fromAddr=keys.to_base58check_address(tx_detail["owner_address"]),
+            toAddr=toAddr,
+            block_at=transaction_at,
+            amount=tx_detail['amount'],
+            symbol="trx",
+        )
+        txlist.append(tx)
+    session.add_all(txlist)
+    session.commit()
 
 
 Base.metadata.create_all(engine, checkfirst=True)
@@ -294,19 +244,22 @@ while True:
         print(e)
         time.sleep(10)
         continue
+    # 这里应该从db中读取高度，每插入一条，应该更新
     now_block_num = int(GetNowBlock.get('block_header').get('raw_data').get('number'))
-    min_block_num = now_block_num - 10
+    min_block_num = now_block_num - 1
     handle_block_count = 0
     for block_num in range(min_block_num, now_block_num):
-        block_date = time.strftime("%Y-%m-%d", time.localtime(
-            int(GetNowBlock.get('block_header').get('raw_data').get('timestamp')) / 1000))
-        block_file_name = "%s/data/%s.csv" % (os.getcwd(), block_num)
-        if not os.path.exists(block_file_name):
-            handle_block_count += 1
-            with open(block_file_name, "w", newline='') as f:
-                pass
-            req = WorkRequest(handleThread, args=[block_num, handle_block_count], kwds={})
-            main.putRequest(req)
+        print(block_num)
+        handleThread(block_num)
+        # block_date = time.strftime("%Y-%m-%d", time.localtime(
+        #     int(GetNowBlock.get('block_header').get('raw_data').get('timestamp')) / 1000))
+        # block_file_name = "%s/data/%s.csv" % (os.getcwd(), block_num)
+        # if not os.path.exists(block_file_name):
+        #     handle_block_count += 1
+        #     with open(block_file_name, "w", newline='') as f:
+        #         pass
+        #     req = WorkRequest(handleThread, args=[block_num, handle_block_count], kwds={})
+        #     main.putRequest(req)
 
     # Rehandle重处理判断
     # TODO 如果是数据库可按照创建时间和处理时间对比一下判断是否重查询

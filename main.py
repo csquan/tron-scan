@@ -124,7 +124,9 @@ def GetContactArray():
             contract_array.append(row)
     return contract_array
 
-def parseAndStore(logdata):
+def parseTxLog(logdata):
+    count =0
+    list = []
     for obj in enumerate(logdata):
         idx = obj[0]
         logs = obj[1]
@@ -163,7 +165,11 @@ def parseAndStore(logdata):
                 amount=str(amount),
                 index=idx,
             )
-            session.add(txlog)
+            list.append(txlog)
+            count = count + 1
+    print(count)
+    return list
+
 
 
 
@@ -187,12 +193,12 @@ def handleThread(blocksnum, delay=0):
     # 取log数据并存储db
     logData = tronapi.getTxInfoByNum(blocksnum)
     try:
-        parseAndStore(logData)
+        loglist = parseTxLog(logData)
+        session.add_all(loglist)
+        session.commit()
     except Exception as e:
         print(e)
         return
-
-    session.commit()
 
     ContactArray = GetContactArray()
     WalletArray = GetWalletArray()

@@ -198,32 +198,31 @@ def handleThread(blocksnum, delay=0):
         print(e)
         return
 
-    # ContactArray = GetContactArray()
-    # WalletArray = GetWalletArray()
+    # 这里是TRC和TRC0交易，以48896576为例，158笔 和浏览器对应
     txlist = []
     for transaction in transactionsData['transactions']:
-        tx_detail = transaction['raw_data']['contract'][0]['parameter']['value']
-        toAddr = ""
-        transactionAmount = ""
-        if 'contract_address' in transaction['raw_data']['contract'][0]['parameter']['value']:
-            toAddr = keys.to_base58check_address(tx_detail["contract_address"])
-            transactionAmount = int(
-                transaction['raw_data']["contract"][0]["parameter"]["value"]["data"][72:].lstrip("0"), 16) / (
-                                        1 * math.pow(10, int(active_contract[2])))
-        else:
-            toAddr = keys.to_base58check_address(tx_detail["to_address"])
-            transactionAmount = tx_detail['amount']
-        # write to mysql
-        tx = Transaction(
-            hash=transaction['txID'],
-            block=blocksnum,
-            fromAddr=keys.to_base58check_address(tx_detail["owner_address"]),
-            toAddr=toAddr,
-            block_at=transaction_at,
-            amount=tx_detail['amount'],
-            symbol="trx",
-        )
-        txlist.append(tx)
+        if 'contract_address' not in transaction['raw_data']['contract'][0]['parameter']['value']:
+            tx_detail = transaction['raw_data']['contract'][0]['parameter']['value']
+            fromAddr = ""
+            toAddr = ""
+            transactionAmount = ""
+            if "amount" in tx_detail:
+                transactionAmount = tx_detail['amount']
+
+                toAddr = keys.to_base58check_address(tx_detail["to_address"])
+                fromAddr = keys.to_base58check_address(tx_detail["owner_address"])
+
+                # write to mysql
+                tx = Transaction(
+                    hash=transaction['txID'],
+                    block=blocksnum,
+                    fromAddr=fromAddr,
+                    toAddr=toAddr,
+                    block_at=transaction_at,
+                    amount=transactionAmount,
+                    symbol="trx",
+                )
+                txlist.append(tx)
     session.add_all(txlist)
     session.commit()
 

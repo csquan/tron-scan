@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 import csv
+import json
 import math
 import os.path
 import codecs
@@ -15,6 +16,8 @@ from sqlalchemy import Column, String, Integer
 from sqlalchemy.orm import sessionmaker
 import pandas as pd
 from sqlalchemy import text
+import pickle
+from kafka import KafkaProducer
 
 decode_hex = codecs.getdecoder("hex_codec")
 
@@ -30,6 +33,17 @@ monitor_session = monitor_Session()
 
 Base = declarative_base()
 
+
+class MyEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, bytes):
+            return str(obj, encoding='utf-8')
+        if isinstance(obj, int):
+            return int(obj)
+        elif isinstance(obj, float):
+            return float(obj)
+        else:
+            return super(MyEncoder, self).default(obj)
 
 class TxKafka:
     def __init__(self):
@@ -91,27 +105,6 @@ class TRC20Transaction(Base):
 
     def __repr__(self):
         return '%s(%r)' % (self.__class__.__name__, self.hash)
-
-
-def producer():
-    # 假设生产的消息为键值对（不是一定要键值对），且序列化方式为json
-    producer = KafkaProducer(
-        bootstrap_servers=['192.168.31.242:9092'],
-        key_serializer=lambda k: json.dumps(k).encode(),
-        value_serializer=lambda v: json.dumps(v).encode())
-    # 发送三条消息
-    for i in range(0, 3):
-        future = producer.send(
-            'kafka_demo',
-            key='count_num',  # 同一个key值，会被送至同一个分区
-            value=str(i),
-            partition=1)  # 向分区1发送消息
-        print("send {}".format(str(i)))
-        try:
-            future.get(timeout=10)  # 监控是否发送成功
-        except kafka_errors:  # 发送失败抛出kafka_errors
-            traceback.format_exc()
-
 
 def Init():
     DirectoryArray = ['config', 'data']
@@ -201,6 +194,16 @@ def KafkaLogic(tx20):
             a.TxHeight = 0
             a.CurChainHeight = 0
             a.LogIndex = 0
+
+            bb = pickle.dumps(a)
+            print(bb)
+            aa = pickle.loads(bb)
+
+            res = kafka.KafkaProducer.send(
+                "tx_topic",
+                key='count_num',  # 同一个key值，会被送至同一个分区
+                value=str(bb))
+            print(res)
 
 
 

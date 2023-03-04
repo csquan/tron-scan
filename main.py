@@ -193,11 +193,9 @@ def parseLogStoreTrc20(block_num, delay):
         # 解析log为TRC20交易
         loglist = parseTxLog(logData, block_num, transaction_at)
         # 更新task当前高度
-        task = tasks(
-            num=block_num,
-            name="TRC20",
-        )
-        session.add(task)
+        new_height = block_num+1
+        update_sql = 'update f_task set num = "' + str(new_height) + '" where name = "TRC20"'
+        session.execute(text(update_sql))
         session.add_all(loglist)
         # 这里保证事物一次提交
         session.commit()
@@ -247,11 +245,9 @@ def parseTxAndStoreTrc(block_num, delay=0):
                 )
                 tx_list.append(tx)
     # 更新task当前高度
-    task = tasks(
-        num=block_num,
-        name="TRC",
-    )
-    session.add(task)
+    new_height = block_num + 1
+    update_sql = 'update f_task set num = "' + str(new_height) + '" where name = "TRC"'
+    session.execute(text(update_sql))
     session.add_all(tx_list)
     session.commit()
 
@@ -276,9 +272,8 @@ while True:
     # 读取SQL数据库
     df = pd.read_sql_query(sql=text(sql), con=engine.connect())  # 读取SQL数据库，并获得pandas数据帧。
     now_block_num = int(GetNowBlock.get('block_header').get('raw_data').get('number'))
-    min_block_num = now_block_num - 1
     handle_block_count = 0
-    delay = 10  # trx的不可逆高度 暂定
+    delay = 0  # trx的不可逆高度 - 目前从rpc获取来的区块比最新高度低19个区块，足够不可逆了
 
     start_height = 0
     if df.empty is True:
@@ -287,8 +282,7 @@ while True:
         start_height = df.num
     # 当数据库的高度比当前高度小(delay+1)
     if start_height[0] + delay + 1 <= now_block_num:
-        get_block_height = now_block_num - (start_height + delay + 1)
-        parseLogStoreTrc20(get_block_height,5)
+        parseLogStoreTrc20(int(start_height[0]), 0)
 
     # 这里应该从db中读取TRC任务高度
     sql = r'select * from f_task where name="TRC"'
@@ -305,7 +299,6 @@ while True:
         start_height = df.num
     # 当数据库的高度比当前高度小(delay+1)
     if start_height[0] + delay + 1 <= now_block_num:
-        get_block_height = now_block_num - (start_height + delay + 1)
-        parseTxAndStoreTrc(get_block_height,5)
+        parseTxAndStoreTrc(int(start_height[0]), 0)
 
     pass

@@ -16,8 +16,10 @@ from sqlalchemy import Column, String, Integer
 from sqlalchemy.orm import sessionmaker
 import pandas as pd
 from sqlalchemy import text
-import pickle
 from kafka import KafkaProducer
+from loguru import logger
+
+import json
 
 decode_hex = codecs.getdecoder("hex_codec")
 
@@ -158,6 +160,14 @@ def GetContactArray():
     return contract_array
 
 
+def on_send_success(record_metadata=None):
+    print(record_metadata.topic)
+    print(record_metadata.partition)
+    print(record_metadata.offset)
+
+def on_send_error(excp=None):
+    logger.error('I am an errback', exc_info=excp)
+
 # TRC20发送kafka逻辑（充值）： 状态hash表：monitor_hash 监控表：monitor
 # 1 从监控表中取tx20.toAdd地址对应的UID ，如果能取到，则进入下一阶段
 # 2 从状态hash表中取出当前的交易hash，如果没找到，则进入下一阶段
@@ -195,15 +205,18 @@ def KafkaLogic(tx20):
             a.CurChainHeight = 0
             a.LogIndex = 0
 
-            bb = pickle.dumps(a)
-            print(bb)
-            aa = pickle.loads(bb)
+            aa_str = json.dumps(a,default=lambda o: o.__dict__,sort_keys=True, indent=4)
 
-            res = kafka.KafkaProducer.send(
-                "tx_topic",
-                key='count_num',  # 同一个key值，会被送至同一个分区
-                value=str(bb))
-            print(res)
+            bootstrap_servers = ['192.168.31.242:9092']
+
+            producer = KafkaProducer(bootstrap_servers=bootstrap_servers)
+
+            bb = bytes(aa_str, 'utf-8')
+
+            ack = producer.send(
+                topic="tx-topic",
+                value=bb).add_callback(on_send_success).add_errback(on_send_error)
+
 
 
 
@@ -225,6 +238,7 @@ def ParseLog(log_data, blocksnum, transaction_at):
             if len(log["topics"][0]) != 64 or len(log["topics"][1]) != 64 or len(log["topics"][2]) != 64:
                 continue
             contractaddr = log["address"]
+            contractaddr = keys.to_base58check_address(contractaddr)
             if log["topics"][0][0:2] != "0x":
                 log["topics"][0] = "0x" + log["topics"][0]
             if log["topics"][0] != TransferTopic:

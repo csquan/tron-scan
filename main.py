@@ -44,7 +44,7 @@ class Transaction(Base):
     fromAddr = Column(String(64), nullable=False, index=False)
     toAddr = Column(String(64), nullable=False, index=False)
     block_at = Column(String(64), nullable=False, index=False)
-    amount = Column(Integer, nullable=False, index=False)
+    amount = Column(String(64), nullable=False, index=False)
     symbol = Column(String(32), nullable=False, index=False)
 
     def __repr__(self):

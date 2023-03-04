@@ -168,13 +168,14 @@ def on_send_success(record_metadata=None):
 def on_send_error(excp=None):
     logger.error('I am an errback', exc_info=excp)
 
-# TRC20发送kafka逻辑（充值）： 状态hash表：monitor_hash 监控表：monitor
+
+# TRC20/TRC发送kafka逻辑（充值）： 状态hash表：monitor_hash 监控表：monitor
 # 1 从监控表中取tx20.toAdd地址对应的UID ，如果能取到，则进入下一阶段
 # 2 从状态hash表中取出当前的交易hash，如果没找到，则进入下一阶段
 # 3 db中取出token的精度（addtoken添加进db）
 # 4 组装消息发送
-def KafkaLogic(tx20):
-    to_address = tx20.toAddr.decode()
+def KafkaTxLogic(tx):
+    to_address = tx.toAddr.decode()
     query_sql = 'select f_uid from t_monitor where f_addr = "' + to_address + '"'
     df_uid = pd.read_sql_query(text(query_sql), con=monitor_engine.connect())
 
@@ -185,20 +186,20 @@ def KafkaLogic(tx20):
         print("找到UID")
         print(df_uid.head().f_uid[0])
 
-        query_sql = 'select * from t_monitor_hash where f_hash = "' + tx20.hash + '"'
+        query_sql = 'select * from t_monitor_hash where f_hash = "' + tx.hash + '"'
         df_hash = pd.read_sql_query(text(query_sql), con=monitor_engine.connect())
 
         if df_hash.empty is True:  # 在状态hash中没找到
-            from_address = tx20.fromAddr.decode()
+            from_address = tx.fromAddr.decode()
             a = TxKafka()
             a.Uid = "test"
             a.To = to_address
             a.From = from_address
-            a.Amount = tx20.amount
+            a.Amount = tx.amount
             a.TokenType = 2
-            a.TxHash = tx20.hash
+            a.TxHash = tx.hash
             a.Chain = "trx"
-            a.ContractAddr = tx20.contract_address
+            a.ContractAddr = tx.contract_address
             a.Decimals = 6         # 首先从db中找到token的精度，目前写死 6
             a.AssetSymbol = "usdt"
             a.TxHeight = 0
@@ -213,7 +214,7 @@ def KafkaLogic(tx20):
 
             bb = bytes(aa_str, 'utf-8')
 
-            ack = producer.send(
+            producer.send(
                 topic="tx-topic",
                 value=bb).add_callback(on_send_success).add_errback(on_send_error)
 
@@ -264,7 +265,7 @@ def ParseLog(log_data, blocksnum, transaction_at):
                 status=1,
             )
             list.append(t20tx)
-            KafkaLogic(t20tx)
+            KafkaTxLogic(t20tx)
     return list
 
 
@@ -341,6 +342,7 @@ def parseTxAndStoreTrc(block_num, delay=0):
                     symbol="trx",
                 )
                 tx_list.append(tx)
+                KafkaTxLogic(tx)
     # 更新task当前高度
     new_height = block_num + 1
     update_sql = 'update f_task set num = "' + str(new_height) + '" where name = "TRC"'

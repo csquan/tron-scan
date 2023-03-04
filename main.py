@@ -62,6 +62,37 @@ class TxKafka:
         self.TxHeight = 0
         self.CurChainHeight = 0
         self.LogIndex = 0
+
+
+class TxMatchPush:
+    def __init__(self):
+        self.Hash = ""
+        self.Chain = ""
+        self.TxHeight = ""
+        self.CurChainHeight = ""
+        self.OrderId = 0
+        self.Success = ""
+        self.GasLimit = ""
+        self.GasPrice = ""
+        self.GasUsed = ""
+        self.Index = ""
+        self.ContractAddr = ""
+
+
+class TxMonitorHash:
+    def __init__(self):
+        self.Hash = ""
+        self.Chain = ""
+        self.OrderID = ""
+        self.PushState = ""
+        self.ReceiptState = 0
+        self.GetReceiptTimes = ""
+        self.GasLimit = ""
+        self.GasPrice = ""
+        self.GasUsed = ""
+        self.Index = ""
+        self.ContractAddr = ""
+
 class tasks(Base):
     __tablename__ = 'f_task'
 
@@ -175,7 +206,8 @@ def on_send_error(excp=None):
 # 3 db中取出token的精度（addtoken添加进db）
 # 4 组装消息发送
 def KafkaTxLogic(tx):
-    to_address = tx.toAddr.decode()
+    # to_address = tx.toAddr.decode()
+    to_address = tx.toAddr
     query_sql = 'select f_uid from t_monitor where f_addr = "' + to_address + '"'
     df_uid = pd.read_sql_query(text(query_sql), con=monitor_engine.connect())
 
@@ -219,6 +251,41 @@ def KafkaTxLogic(tx):
                 value=bb).add_callback(on_send_success).add_errback(on_send_error)
 
 
+
+# TRC20/TRC发送kafka逻辑（充值）： 状态hash表：monitor_hash 监控表：monitor
+# 1 从监控表中取tx20.toAdd地址对应的UID ，如果能取到，则进入下一阶段
+# 2 从状态hash表中取出当前的交易hash，如果没找到，则进入下一阶段
+# 3 db中取出token的精度（addtoken添加进db）
+# 4 组装消息发送
+def KafkaMatchTxLogic(tx):
+    query_sql = 'select * from t_monitor_hash where f_hash = "' + tx.hash + '"'
+    df_match_hash = pd.read_sql_query(text(query_sql), con=monitor_engine.connect())
+
+    if df_match_hash.empty is False:  # 在状态hash中匹配到,df_match_hash取值
+        a = TxMatchPush()
+        a.Hash = tx.hash
+        a.Chain = "trx"
+        a.TxHeight = ""
+        a.CurChainHeight = ""
+        a.OrderID = "test"
+        a.Success = 1
+        a.GasLimit = ""
+        a.GasPrice = ""
+        a.GasUsed = ""
+        a.ContractAddr = tx.contract_address
+        a.Index = 0
+
+        aa_str = json.dumps(a,default=lambda o: o.__dict__,sort_keys=True, indent=4)
+
+        bootstrap_servers = ['192.168.31.242:9092']
+
+        producer = KafkaProducer(bootstrap_servers=bootstrap_servers)
+
+        bb = bytes(aa_str, 'utf-8')
+
+        producer.send(
+            topic="match-topic",
+            value=bb).add_callback(on_send_success).add_errback(on_send_error)
 
 
 
@@ -265,7 +332,7 @@ def ParseLog(log_data, blocksnum, transaction_at):
                 status=1,
             )
             list.append(t20tx)
-            KafkaTxLogic(t20tx)
+            KafkaTxLogic(t20tx) # 充值交易
     return list
 
 
@@ -342,7 +409,8 @@ def parseTxAndStoreTrc(block_num, delay=0):
                     symbol="trx",
                 )
                 tx_list.append(tx)
-                KafkaTxLogic(tx)
+                KafkaMatchTxLogic(tx)  # 状态hash匹配
+                KafkaTxLogic(tx)  # 充值交易
     # 更新task当前高度
     new_height = block_num + 1
     update_sql = 'update f_task set num = "' + str(new_height) + '" where name = "TRC"'

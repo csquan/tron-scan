@@ -4,6 +4,7 @@ import math
 import os.path
 import codecs
 from tronapi.tronapi import Tronapi
+import kafka
 from vendor.ThreadPool import ThreadPool, WorkRequest
 import time
 import base58
@@ -23,8 +24,28 @@ engine = create_engine('mysql+mysqldb://root:csquan253905@localhost:3306/TronBlo
 Session = sessionmaker(bind=engine)
 session = Session()
 
+monitor_engine = create_engine('mysql+mysqldb://root:csquan253905@localhost:3306/TronCollect')
+monitor_Session = sessionmaker(bind=monitor_engine)
+monitor_session = monitor_Session()
+
 Base = declarative_base()
 
+
+class TxKafka:
+    def __init__(self):
+        self.From = ""
+        self.To = ""
+        self.Uid = ""
+        self.Amount = ""
+        self.TokenType = 0
+        self.TxHash = ""
+        self.Chain = ""
+        self.ContractAddr = ""
+        self.Decimals = 0
+        self.AssetSymbol = ""
+        self.TxHeight = 0
+        self.CurChainHeight = 0
+        self.LogIndex = 0
 class tasks(Base):
     __tablename__ = 'f_task'
 
@@ -35,6 +56,7 @@ class tasks(Base):
 
     def __repr__(self):
         return '%s(%r)' % (self.__class__.__name__, self.name)
+
 
 class Transaction(Base):
     __tablename__ = 'f_tx'
@@ -69,6 +91,26 @@ class TRC20Transaction(Base):
 
     def __repr__(self):
         return '%s(%r)' % (self.__class__.__name__, self.hash)
+
+
+def producer():
+    # 假设生产的消息为键值对（不是一定要键值对），且序列化方式为json
+    producer = KafkaProducer(
+        bootstrap_servers=['192.168.31.242:9092'],
+        key_serializer=lambda k: json.dumps(k).encode(),
+        value_serializer=lambda v: json.dumps(v).encode())
+    # 发送三条消息
+    for i in range(0, 3):
+        future = producer.send(
+            'kafka_demo',
+            key='count_num',  # 同一个key值，会被送至同一个分区
+            value=str(i),
+            partition=1)  # 向分区1发送消息
+        print("send {}".format(str(i)))
+        try:
+            future.get(timeout=10)  # 监控是否发送成功
+        except kafka_errors:  # 发送失败抛出kafka_errors
+            traceback.format_exc()
 
 
 def Init():
@@ -122,24 +164,63 @@ def GetContactArray():
             contract_array.append(row)
     return contract_array
 
-def parseTxLog(logdata,blocksnum,transaction_at):
-    count =0
+
+# TRC20发送kafka逻辑（充值）： 状态hash表：monitor_hash 监控表：monitor
+# 1 从监控表中取tx20.toAdd地址对应的UID ，如果能取到，则进入下一阶段
+# 2 从状态hash表中取出当前的交易hash，如果没找到，则进入下一阶段
+# 3 db中取出token的精度（addtoken添加进db）
+# 4 组装消息发送
+def KafkaLogic(tx20):
+    to_address = tx20.toAddr.decode()
+    query_sql = 'select f_uid from t_monitor where f_addr = "' + to_address + '"'
+    df_uid = pd.read_sql_query(text(query_sql), con=monitor_engine.connect())
+
+    if df_uid.empty is True:
+        print("没找到UID，该地址不在监控列表")
+        return
+    else:  # UID存在
+        print("找到UID")
+        print(df_uid.head().f_uid[0])
+
+        query_sql = 'select * from t_monitor_hash where f_hash = "' + tx20.hash + '"'
+        df_hash = pd.read_sql_query(text(query_sql), con=monitor_engine.connect())
+
+        if df_hash.empty is True:  # 在状态hash中没找到
+            from_address = tx20.fromAddr.decode()
+            a = TxKafka()
+            a.Uid = "test"
+            a.To = to_address
+            a.From = from_address
+            a.Amount = tx20.amount
+            a.TokenType = 2
+            a.TxHash = tx20.hash
+            a.Chain = "trx"
+            a.ContractAddr = tx20.contract_address
+            a.Decimals = 6         # 首先从db中找到token的精度，目前写死 6
+            a.AssetSymbol = "usdt"
+            a.TxHeight = 0
+            a.CurChainHeight = 0
+            a.LogIndex = 0
+
+
+
+
+def ParseLog(log_data, blocksnum, transaction_at):
     list = []
-    for obj in enumerate(logdata):
+    for obj in enumerate(log_data):
         idx = obj[0]
         logs = obj[1]
-        print(idx)
         if "result" not in logs["receipt"]:
             continue
         if logs["receipt"]["result"] != "SUCCESS":
-           continue
+            continue
         if "log" not in logs:
             continue
         for log in logs["log"]:
             if len(log["topics"]) != 3:
-               continue
+                continue
             if len(log["topics"][0]) != 64 or len(log["topics"][1]) != 64 or len(log["topics"][2]) != 64:
-               continue
+                continue
             contractaddr = log["address"]
             if log["topics"][0][0:2] != "0x":
                 log["topics"][0] = "0x" + log["topics"][0]
@@ -166,8 +247,7 @@ def parseTxLog(logdata,blocksnum,transaction_at):
                 status=1,
             )
             list.append(t20tx)
-            count = count + 1
-    print(count)
+            KafkaLogic(t20tx)
     return list
 
 
@@ -191,12 +271,12 @@ def parseLogStoreTrc20(block_num, delay):
     logData = tron_api.getTxInfoByNum(block_num)
     try:
         # 解析log为TRC20交易
-        loglist = parseTxLog(logData, block_num, transaction_at)
+        log_list = ParseLog(logData, block_num, transaction_at)
         # 更新task当前高度
-        new_height = block_num+1
+        new_height = block_num + 1
         update_sql = 'update f_task set num = "' + str(new_height) + '" where name = "TRC20"'
         session.execute(text(update_sql))
-        session.add_all(loglist)
+        session.add_all(log_list)
         # 这里保证事物一次提交
         session.commit()
     except Exception as e:
@@ -265,7 +345,7 @@ while True:
     except Exception as e:
         # 过于频繁的请求波场接口可能会强制限制一段时间,此时sleep一下
         print(e)
-        time.sleep(10)
+        time.sleep(5)
         continue
     # 这里应该从db中读取TRC20的任务高度
     sql = r'select * from f_task where name="TRC20"'

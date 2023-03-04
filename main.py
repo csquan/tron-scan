@@ -23,16 +23,16 @@ session = Session()
 
 Base = declarative_base()
 
-# class async_tasks(Base):
-#     __tablename__ = 'f_async_task'
-#
-#     id = Column(Integer, primary_key=True)
-#
-#     num = Column(Integer(64), nullable=False, index=True)
-#     name = Column(String(64), nullable=False, index=False)
-#
-#     def __repr__(self):
-#         return '%s(%r)' % (self.__class__.__name__, self.name)
+class tasks(Base):
+    __tablename__ = 'f_async_task'
+
+    id = Column(Integer, primary_key=True)
+
+    num = Column(Integer, nullable=False, index=True)
+    name = Column(String(64), nullable=False, index=False)
+
+    def __repr__(self):
+        return '%s(%r)' % (self.__class__.__name__, self.name)
 
 class Transaction(Base):
     __tablename__ = 'f_tx'
@@ -169,7 +169,12 @@ def parseTxLog(logdata,blocksnum,transaction_at):
     return list
 
 
-
+def updateAsyncTask(taskname,blocknum):
+    task = tasks(
+        num=blocknum,
+        name=taskname,
+    )
+    return task
 
 def handleThread(blocksnum, delay=0):
     time.sleep(delay)
@@ -191,8 +196,16 @@ def handleThread(blocksnum, delay=0):
     # 取log数据并存储db
     logData = tronapi.getTxInfoByNum(blocksnum)
     try:
+        # 解析log为TRC20交易
         loglist = parseTxLog(logData, blocksnum, transaction_at)
+        # 更新task当前高度
+        task = tasks(
+            num=blocksnum,
+            name="TRC20",
+        )
+        session.add(task)
         session.add_all(loglist)
+        # 这里保证事物一次提交
         session.commit()
     except Exception as e:
         print(e)
@@ -223,6 +236,12 @@ def handleThread(blocksnum, delay=0):
                     symbol="trx",
                 )
                 txlist.append(tx)
+    # 更新task当前高度
+    task = tasks(
+        num=blocksnum,
+        name="TRC&TRC10",
+    )
+    session.add(task)
     session.add_all(txlist)
     session.commit()
 

@@ -15,7 +15,7 @@ class Tronapi(object):
     conf = {
         'fee_limit': 10_000_000,
         'timeout': 10_000_000,
-        'fullnode': "https://api.trongrid.io",
+        'fullnode': "https://api.trongrid.io",  # "https://rpc.ankr.com/http/tron" #
     }
     network = ""
 

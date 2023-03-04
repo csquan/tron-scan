@@ -12,6 +12,8 @@ from sqlalchemy import create_engine
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy import Column, String, Integer
 from sqlalchemy.orm import sessionmaker
+import pandas as pd
+from sqlalchemy import text
 
 decode_hex = codecs.getdecoder("hex_codec")
 
@@ -24,7 +26,7 @@ session = Session()
 Base = declarative_base()
 
 class tasks(Base):
-    __tablename__ = 'f_async_task'
+    __tablename__ = 'f_task'
 
     id = Column(Integer, primary_key=True)
 
@@ -169,38 +171,30 @@ def parseTxLog(logdata,blocksnum,transaction_at):
     return list
 
 
-def updateAsyncTask(taskname,blocknum):
-    task = tasks(
-        num=blocknum,
-        name=taskname,
-    )
-    return task
-
-def handleThread(blocksnum, delay=0):
+def parseLogStoreTrc20(block_num, delay):
     time.sleep(delay)
-    blocksnum = 48896576
-    print(blocksnum)
-    tronapi = Tronapi()
+    tron_api = Tronapi()
     try:
-        transactionsData = tronapi.getWalletsolidityBlockByNum(blocksnum)
+        transactionsData = tron_api.getWalletsolidityBlockByNum(block_num)
     except Exception as e:
-        # 可能接口请求过于频繁,因此重新请求
-        return handleThread(blocksnum, 5)
+        print("可能接口请求过于频繁,因此休眠5秒后重新请求")
+        return parseLogStoreTrc20(block_num, 5)
     try:
         transaction_at = (transactionsData['block_header']['raw_data']['timestamp']) / 1000
         transaction_at = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(transaction_at))
     except Exception as e:
+        print(e)
         return
     if transactionsData.get("transactions") is None:
         return
     # 取log数据并存储db
-    logData = tronapi.getTxInfoByNum(blocksnum)
+    logData = tron_api.getTxInfoByNum(block_num)
     try:
         # 解析log为TRC20交易
-        loglist = parseTxLog(logData, blocksnum, transaction_at)
+        loglist = parseTxLog(logData, block_num, transaction_at)
         # 更新task当前高度
         task = tasks(
-            num=blocksnum,
+            num=block_num,
             name="TRC20",
         )
         session.add(task)
@@ -211,14 +205,30 @@ def handleThread(blocksnum, delay=0):
         print(e)
         return
 
-    # 这里是TRC和TRC0交易，以48896576为例，158笔 和浏览器对应
-    txlist = []
+
+def parseTxAndStoreTrc(block_num, delay=0):
+    time.sleep(delay)
+    tron_api = Tronapi()
+    try:
+        transactionsData = tron_api.getWalletsolidityBlockByNum(block_num)
+    except Exception as e:
+        print(e)
+        print("可能接口请求过于频繁,因此重新请求")
+        return parseTxAndStoreTrc(block_num, 5)
+    try:
+        transaction_at = (transactionsData['block_header']['raw_data']['timestamp']) / 1000
+        transaction_at = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(transaction_at))
+    except Exception as e:
+        print(e)
+        return
+    if transactionsData.get("transactions") is None:
+        return
+
+    # 这里是TRC和TRC10交易，以48896576为例，158笔 和浏览器对应
+    tx_list = []
     for transaction in transactionsData['transactions']:
         if 'contract_address' not in transaction['raw_data']['contract'][0]['parameter']['value']:
             tx_detail = transaction['raw_data']['contract'][0]['parameter']['value']
-            fromAddr = ""
-            toAddr = ""
-            transactionAmount = ""
             if "amount" in tx_detail:
                 transactionAmount = tx_detail['amount']
 
@@ -228,21 +238,21 @@ def handleThread(blocksnum, delay=0):
                 # write to mysql
                 tx = Transaction(
                     hash=transaction['txID'],
-                    block=blocksnum,
+                    block=block_num,
                     fromAddr=fromAddr,
                     toAddr=toAddr,
                     block_at=transaction_at,
                     amount=transactionAmount,
                     symbol="trx",
                 )
-                txlist.append(tx)
+                tx_list.append(tx)
     # 更新task当前高度
     task = tasks(
-        num=blocksnum,
-        name="TRC&TRC10",
+        num=block_num,
+        name="TRC",
     )
     session.add(task)
-    session.add_all(txlist)
+    session.add_all(tx_list)
     session.commit()
 
 
@@ -256,35 +266,46 @@ main = ThreadPool(2)
 while True:
     try:
         GetNowBlock = tronapi.getConfirmedCurrentBlock()
-        # print(GetNowBlock)
     except Exception as e:
         # 过于频繁的请求波场接口可能会强制限制一段时间,此时sleep一下
         print(e)
         time.sleep(10)
         continue
-    # 这里应该从db中读取高度，每插入一条，应该更新
+    # 这里应该从db中读取TRC20的任务高度
+    sql = r'select * from f_task where name="TRC20"'
+    # 读取SQL数据库
+    df = pd.read_sql_query(sql=text(sql), con=engine.connect())  # 读取SQL数据库，并获得pandas数据帧。
     now_block_num = int(GetNowBlock.get('block_header').get('raw_data').get('number'))
     min_block_num = now_block_num - 1
     handle_block_count = 0
-    for block_num in range(min_block_num, now_block_num):
-        print(block_num)
-        handleThread(block_num)
-        # block_date = time.strftime("%Y-%m-%d", time.localtime(
-        #     int(GetNowBlock.get('block_header').get('raw_data').get('timestamp')) / 1000))
-        # block_file_name = "%s/data/%s.csv" % (os.getcwd(), block_num)
-        # if not os.path.exists(block_file_name):
-        #     handle_block_count += 1
-        #     with open(block_file_name, "w", newline='') as f:
-        #         pass
-        #     req = WorkRequest(handleThread, args=[block_num, handle_block_count], kwds={})
-        #     main.putRequest(req)
+    delay = 10  # trx的不可逆高度 暂定
 
-    # Rehandle重处理判断
-    # TODO 如果是数据库可按照创建时间和处理时间对比一下判断是否重查询
-
-    # 如果区块较少的,可等待久点累积一下
-    if handle_block_count < 5:
-        time.sleep(10)
+    start_height = 0
+    if df.empty is True:
+        start_height = 0
     else:
-        time.sleep(5)
+        start_height = df.num
+    # 当数据库的高度比当前高度小(delay+1)
+    if start_height[0] + delay + 1 <= now_block_num:
+        get_block_height = now_block_num - (start_height + delay + 1)
+        parseLogStoreTrc20(get_block_height,5)
+
+    # 这里应该从db中读取TRC任务高度
+    sql = r'select * from f_task where name="TRC"'
+    # 读取SQL数据库
+    df = pd.read_sql_query(sql=text(sql), con=engine.connect())  # 读取SQL数据库，并获得pandas数据帧。
+    now_block_num = int(GetNowBlock.get('block_header').get('raw_data').get('number'))
+    min_block_num = now_block_num - 1
+    handle_block_count = 0
+
+    start_height = 0
+    if df.empty is True:
+        start_height = 0
+    else:
+        start_height = df.num
+    # 当数据库的高度比当前高度小(delay+1)
+    if start_height[0] + delay + 1 <= now_block_num:
+        get_block_height = now_block_num - (start_height + delay + 1)
+        parseTxAndStoreTrc(get_block_height,5)
+
     pass

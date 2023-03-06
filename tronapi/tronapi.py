@@ -172,3 +172,8 @@ class Tronapi(object):
             return address
 
         return base58.b58encode_check(bytes.fromhex(address))
+
+    # 获取合约相关信息
+    def getContractInfo(self, name, contract_address):
+        response = self.request(action="/wallet/triggerconstantcontract", data={'function_selector': name, 'contract_address':contract_address, 'owner_address':'410000000000000000000000000000000000000000'})
+        return response

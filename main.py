@@ -18,6 +18,7 @@ import pandas as pd
 from sqlalchemy import text
 from kafka import KafkaProducer
 from loguru import logger
+import binascii
 
 import json
 
@@ -35,17 +36,6 @@ monitor_session = monitor_Session()
 
 Base = declarative_base()
 
-
-class MyEncoder(json.JSONEncoder):
-    def default(self, obj):
-        if isinstance(obj, bytes):
-            return str(obj, encoding='utf-8')
-        if isinstance(obj, int):
-            return int(obj)
-        elif isinstance(obj, float):
-            return float(obj)
-        else:
-            return super(MyEncoder, self).default(obj)
 
 class TxKafka:
     def __init__(self):
@@ -116,7 +106,8 @@ class Transaction(Base):
     toAddr = Column(String(64), nullable=False, index=False)
     block_at = Column(String(64), nullable=False, index=False)
     amount = Column(String(64), nullable=False, index=False)
-    symbol = Column(String(32), nullable=False, index=False)
+    symbol = Column(String(64), nullable=False, index=False)
+    is_contract = Column(String(64), nullable=False, index=False)
     contract_addr = Column(String(64), nullable=False, index=False)
     def __repr__(self):
         return '%s(%r)' % (self.__class__.__name__, self.hash)
@@ -136,6 +127,18 @@ class TRC20Transaction(Base):
     contract_addr = Column(String(64), nullable=False, index=False)
     status = Column(String(64), nullable=False, index=False)
 
+    def __repr__(self):
+        return '%s(%r)' % (self.__class__.__name__, self.hash)
+
+class Contract(Base):
+    __tablename__ = 'f_contract'
+
+    id = Column(Integer, primary_key=True)
+
+    name = Column(String(64), nullable=False, index=False)
+    symbol = Column(String(64), nullable=False, index=True)
+    decimal = Column(String(64), nullable=False, index=False)
+    total_supply = Column(String(64), nullable=False, index=False)
     def __repr__(self):
         return '%s(%r)' % (self.__class__.__name__, self.hash)
 
@@ -203,18 +206,18 @@ def on_send_error(excp=None):
 # 2 从状态hash表中取出当前的交易hash，如果没找到，则进入下一阶段
 # 3 db中取出token的精度（addtoken添加进db）
 # 4 组装消息发送
-def KafkaTxLogic(tx):
+def KafkaTxLogic(tx,contract):
     to_address = tx.toAddr
 
     query_sql = 'select f_uid from t_monitor where f_addr = "' + to_address + '"'
     df_uid = pd.read_sql_query(text(query_sql), con=monitor_engine.connect())
 
     if df_uid.empty is True:
-       print("没找到UID，该地址不在监控列表")
-       return
-   else:  # UID存在
-       print("找到UID")
-       print(df_uid.head().f_uid[0])
+        print("没找到UID，该地址不在监控列表")
+        return
+    else:  # UID存在
+        print("找到UID")
+        print(df_uid.head().f_uid[0])
 
         query_sql = 'select * from t_monitor_hash where f_hash = "' + tx.hash + '"'
         df_hash = pd.read_sql_query(text(query_sql), con=monitor_engine.connect())
@@ -229,8 +232,12 @@ def KafkaTxLogic(tx):
             a.TxHash = tx.hash
             a.Chain = "trx"
             a.ContractAddr = tx.contract_addr
-            a.Decimals = 6         # 首先从db中找到token的精度，目前写死 6
-            a.AssetSymbol = "usdt"
+            if tx.is_contract is True:
+                a.Decimals = contract.decimal
+                a.AssetSymbol = contract.symbol
+            else:
+                a.Decimals = "0"
+                a.AssetSymbol = ""
             a.TxHeight = 0
             a.CurChainHeight = 0
             a.LogIndex = 0
@@ -335,7 +342,7 @@ def ParseLog(log_data, blocksnum, transaction_at):
                 status=1,
             )
             list.append(t20tx)
-            KafkaTxLogic(t20tx) # 充值交易
+            KafkaTxLogic(t20tx,contract) # 充值交易
             count = count+1
             print(count)
     return list
@@ -373,6 +380,10 @@ def parseLogStoreTrc20(block_num, delay):
         print(e)
         return
 
+def hexStr_to_str(hex_str):
+    hex = hex_str.decode('utf-8')
+    str_bin = binascii.unhexlify(hex)
+    return str_bin.decode('utf-8')
 
 def parseTxAndStoreTrc(block_num, delay=0):
     time.sleep(delay)
@@ -396,13 +407,14 @@ def parseTxAndStoreTrc(block_num, delay=0):
     # 这里是TRC和TRC10交易，以48896576为例，158笔 和浏览器对应
     count = 0
     tx_list = []
+    contract_list = []
     for transaction in transactionsData['transactions']:
         contract_address = ""
         tx = Transaction()
         if 'contract_address' in transaction['raw_data']['contract'][0]['parameter']['value']: # 合约交易
             try:
-                contract = transaction['raw_data']['contract'][0]['parameter']['value']['contract_address']
-                contract = keys.to_base58check_address(contract)
+                contract_in_hex = transaction['raw_data']['contract'][0]['parameter']['value']['contract_address']
+                contract = keys.to_base58check_address(contract_in_hex)
                 active_contract = []
                 for temp in ContactArray:
                     if temp[0] == contract:
@@ -434,9 +446,34 @@ def parseTxAndStoreTrc(block_num, delay=0):
                 block_at=transaction_at,
                 amount=transactionAmount,
                 contract_addr=contract,
-                symbol=""
+                is_contract="True"
             )
             tx_list.append(tx)
+            # 这里需要调用合约信息接口
+            is_contract = "True"
+            res = tron_api.getContractInfo("name()", contract_in_hex)
+            if res['result']['result'] is True:
+                name = bytes.fromhex(res['constant_result'][0][128:192].rstrip('0')).decode()
+                print("name"+name)
+            res = tron_api.getContractInfo("symbol()", contract_in_hex)
+            if res['result']['result'] is True:
+                symbol = bytes.fromhex(res['constant_result'][0][128:192].rstrip('0')).decode()
+                print("symbol:" + symbol)
+            res = tron_api.getContractInfo("decimals()", contract_in_hex)
+            if res['result']['result'] is True:
+                decimals = res['constant_result'][0].lstrip('0')
+                print("decimal:" + decimals)
+            res = tron_api.getContractInfo("totalSupply()", contract_in_hex)
+            if res['result']['result'] is True:
+                totalSupply=int(res['constant_result'][0].lstrip('0'), 16)
+                print("totalSupply:"+str(totalSupply))
+            contract = Contract(
+                name=name,
+                symbol=symbol,
+                decimal=decimals,
+                total_supply=str(totalSupply)
+            )
+            contract_list.append(contract)
         else:  # 非合约交易
             tx_detail = transaction['raw_data']['contract'][0]['parameter']['value']
             if "amount" in tx_detail:
@@ -454,13 +491,15 @@ def parseTxAndStoreTrc(block_num, delay=0):
                     block_at=transaction_at,
                     amount=transactionAmount,
                     symbol="trx",
-                    contract_addr=""
+                    contract_addr="",
+                    is_contract="False"
                 )
                 tx_list.append(tx)
+                contract = Contract()
             else:  # resource = "energy"
                 continue
         KafkaMatchTxLogic(tx)  # 状态hash匹配
-        KafkaTxLogic(tx)  # 充值交易
+        KafkaTxLogic(tx,contract)  # 充值交易
         count = count + 1
         print(count)
 

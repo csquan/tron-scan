@@ -117,7 +117,7 @@ class Transaction(Base):
     block_at = Column(String(64), nullable=False, index=False)
     amount = Column(String(64), nullable=False, index=False)
     symbol = Column(String(32), nullable=False, index=False)
-
+    contract_addr = Column(String(64), nullable=False, index=False)
     def __repr__(self):
         return '%s(%r)' % (self.__class__.__name__, self.hash)
 
@@ -133,7 +133,7 @@ class TRC20Transaction(Base):
     toAddr = Column(String(64), nullable=False, index=False)
     block_at = Column(String(64), nullable=False, index=False)
     amount = Column(String(64), nullable=False, index=False)
-    contract_address = Column(String(64), nullable=False, index=False)
+    contract_addr = Column(String(64), nullable=False, index=False)
     status = Column(String(64), nullable=False, index=False)
 
     def __repr__(self):
@@ -193,8 +193,6 @@ def GetContactArray():
 
 def on_send_success(record_metadata=None):
     print(record_metadata.topic)
-    print(record_metadata.partition)
-    print(record_metadata.offset)
 
 def on_send_error(excp=None):
     logger.error('I am an errback', exc_info=excp)
@@ -206,37 +204,37 @@ def on_send_error(excp=None):
 # 3 db中取出token的精度（addtoken添加进db）
 # 4 组装消息发送
 def KafkaTxLogic(tx):
-    # to_address = tx.toAddr.decode()
     to_address = tx.toAddr
+
     query_sql = 'select f_uid from t_monitor where f_addr = "' + to_address + '"'
     df_uid = pd.read_sql_query(text(query_sql), con=monitor_engine.connect())
 
     if df_uid.empty is True:
-        print("没找到UID，该地址不在监控列表")
-        return
-    else:  # UID存在
-        print("找到UID")
-        print(df_uid.head().f_uid[0])
+       print("没找到UID，该地址不在监控列表")
+       return
+   else:  # UID存在
+       print("找到UID")
+       print(df_uid.head().f_uid[0])
 
         query_sql = 'select * from t_monitor_hash where f_hash = "' + tx.hash + '"'
         df_hash = pd.read_sql_query(text(query_sql), con=monitor_engine.connect())
 
         if df_hash.empty is True:  # 在状态hash中没找到
-            from_address = tx.fromAddr.decode()
             a = TxKafka()
             a.Uid = "test"
             a.To = to_address
-            a.From = from_address
+            a.From = tx.fromAddr
             a.Amount = tx.amount
             a.TokenType = 2
             a.TxHash = tx.hash
             a.Chain = "trx"
-            a.ContractAddr = tx.contract_address
+            a.ContractAddr = tx.contract_addr
             a.Decimals = 6         # 首先从db中找到token的精度，目前写死 6
             a.AssetSymbol = "usdt"
             a.TxHeight = 0
             a.CurChainHeight = 0
             a.LogIndex = 0
+
 
             aa_str = json.dumps(a,default=lambda o: o.__dict__,sort_keys=True, indent=4)
 
@@ -252,6 +250,7 @@ def KafkaTxLogic(tx):
 
 
 
+
 # TRC20/TRC发送kafka逻辑（充值）： 状态hash表：monitor_hash 监控表：monitor
 # 1 从监控表中取tx20.toAdd地址对应的UID ，如果能取到，则进入下一阶段
 # 2 从状态hash表中取出当前的交易hash，如果没找到，则进入下一阶段
@@ -262,6 +261,7 @@ def KafkaMatchTxLogic(tx):
     df_match_hash = pd.read_sql_query(text(query_sql), con=monitor_engine.connect())
 
     if df_match_hash.empty is False:  # 在状态hash中匹配到,df_match_hash取值
+        print("在状态hash表中匹配到" + tx.hash)
         a = TxMatchPush()
         a.Hash = tx.hash
         a.Chain = "trx"
@@ -272,7 +272,7 @@ def KafkaMatchTxLogic(tx):
         a.GasLimit = ""
         a.GasPrice = ""
         a.GasUsed = ""
-        a.ContractAddr = tx.contract_address
+        a.ContractAddr = tx.contract_addr
         a.Index = 0
 
         aa_str = json.dumps(a,default=lambda o: o.__dict__,sort_keys=True, indent=4)
@@ -291,6 +291,7 @@ def KafkaMatchTxLogic(tx):
 
 def ParseLog(log_data, blocksnum, transaction_at):
     list = []
+    count = 0
     for obj in enumerate(log_data):
         idx = obj[0]
         logs = obj[1]
@@ -318,6 +319,8 @@ def ParseLog(log_data, blocksnum, transaction_at):
             fromaddr = base58.b58encode_check(bytes.fromhex(fromaddr))
             toaddr = base58.b58encode_check(bytes.fromhex(toaddr))
 
+            fromaddr = fromaddr.decode()
+            toaddr = toaddr.decode()
             val = decode_hex(log["data"][24:])
             amount = int.from_bytes(val[0], byteorder='big')
 
@@ -328,11 +331,13 @@ def ParseLog(log_data, blocksnum, transaction_at):
                 toAddr=toaddr,
                 block_at=transaction_at,
                 amount=str(amount),
-                contract_address=contractaddr,
+                contract_addr=contractaddr,
                 status=1,
             )
             list.append(t20tx)
             KafkaTxLogic(t20tx) # 充值交易
+            count = count+1
+            print(count)
     return list
 
 
@@ -387,10 +392,52 @@ def parseTxAndStoreTrc(block_num, delay=0):
     if transactionsData.get("transactions") is None:
         return
 
+    ContactArray = GetContactArray()
     # 这里是TRC和TRC10交易，以48896576为例，158笔 和浏览器对应
+    count = 0
     tx_list = []
     for transaction in transactionsData['transactions']:
-        if 'contract_address' not in transaction['raw_data']['contract'][0]['parameter']['value']:
+        contract_address = ""
+        tx = Transaction()
+        if 'contract_address' in transaction['raw_data']['contract'][0]['parameter']['value']: # 合约交易
+            try:
+                contract = transaction['raw_data']['contract'][0]['parameter']['value']['contract_address']
+                contract = keys.to_base58check_address(contract)
+                active_contract = []
+                for temp in ContactArray:
+                    if temp[0] == contract:
+                        active_contract = temp
+                if len(active_contract) == 0:
+                    continue
+            except Exception as e:
+                print('错误:', e)
+                continue
+            func = transaction['raw_data']["contract"][0]["parameter"]["value"]["data"][0:8]
+            if func != "a9059cbb":
+                continue
+            try:
+                transactionAmount = int(
+                    transaction['raw_data']["contract"][0]["parameter"]["value"]["data"][72:].lstrip("0"), 16) / (
+                                            1 * math.pow(10, int(active_contract[2])))
+            except:
+                continue
+            from_address = keys.to_base58check_address(
+                transaction['raw_data']['contract'][0]['parameter']['value']['owner_address'])
+            to_address = keys.to_base58check_address(
+                transaction['raw_data']["contract"][0]["parameter"]["value"]["data"][9:72].lstrip("0"))
+            # write to mysql
+            tx = Transaction(
+                hash=transaction['txID'],
+                block=block_num,
+                fromAddr=from_address,
+                toAddr=to_address,
+                block_at=transaction_at,
+                amount=transactionAmount,
+                contract_addr=contract,
+                symbol=""
+            )
+            tx_list.append(tx)
+        else:  # 非合约交易
             tx_detail = transaction['raw_data']['contract'][0]['parameter']['value']
             if "amount" in tx_detail:
                 transactionAmount = tx_detail['amount']
@@ -407,10 +454,16 @@ def parseTxAndStoreTrc(block_num, delay=0):
                     block_at=transaction_at,
                     amount=transactionAmount,
                     symbol="trx",
+                    contract_addr=""
                 )
                 tx_list.append(tx)
-                KafkaMatchTxLogic(tx)  # 状态hash匹配
-                KafkaTxLogic(tx)  # 充值交易
+            else:  # resource = "energy"
+                continue
+        KafkaMatchTxLogic(tx)  # 状态hash匹配
+        KafkaTxLogic(tx)  # 充值交易
+        count = count + 1
+        print(count)
+
     # 更新task当前高度
     new_height = block_num + 1
     update_sql = 'update f_task set num = "' + str(new_height) + '" where name = "TRC"'
@@ -425,7 +478,7 @@ Init()
 
 tronapi = Tronapi()
 
-main = ThreadPool(2)
+main = ThreadPool(1)
 while True:
     try:
         GetNowBlock = tronapi.getConfirmedCurrentBlock()
@@ -449,6 +502,7 @@ while True:
         start_height = df.num
     # 当数据库的高度比当前高度小(delay+1)
     if start_height[0] + delay + 1 <= now_block_num:
+        print("开始处理TRC20交易，当前处理的高度为： " + str(start_height[0]))
         parseLogStoreTrc20(int(start_height[0]), 0)
 
     # 这里应该从db中读取TRC任务高度
@@ -466,6 +520,7 @@ while True:
         start_height = df.num
     # 当数据库的高度比当前高度小(delay+1)
     if start_height[0] + delay + 1 <= now_block_num:
+        print("开始处理TRC交易，当前处理的高度为： " + str(start_height[0]))
         parseTxAndStoreTrc(int(start_height[0]), 0)
 
     pass

@@ -12,7 +12,7 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy import Column, String, Integer
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import text
-from kafka import KafkaProducer
+from kafka3 import KafkaProducer
 import binascii
 import pandas as pd
 import json
@@ -23,11 +23,11 @@ decode_hex = codecs.getdecoder("hex_codec")
 
 TransferTopic = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
 
-engine = create_engine('mysql+mysqldb://root:csquan253905@localhost:3306/TronBlock')
+engine = create_engine('mysql+mysqldb://root:fat-chain-root-password@my-sql:3306/TronBlock')
 Session = sessionmaker(bind=engine)
 session = Session()
 
-monitor_engine = create_engine('mysql+mysqldb://root:csquan253905@localhost:3306/TronCollect', pool_size=0, max_overflow=-1)
+monitor_engine = create_engine('mysql+mysqldb://root:fat-chain-root-password@my-sql:3306/Tron_Collect', pool_size=0, max_overflow=-1)
 monitor_Session = sessionmaker(bind=monitor_engine)
 monitor_session = monitor_Session()
 

@@ -12,10 +12,12 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy import Column, String, Integer
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import text
-from kafka3 import KafkaProducer
+from kafka import KafkaProducer
 import binascii
 import pandas as pd
 import json
+import datetime
+
 
 decode_hex = codecs.getdecoder("hex_codec")
 
@@ -206,13 +208,12 @@ def KafkaTxLogic(tx):
     df_uid = pd.read_sql_query(text(query_sql), con=monitor_engine.connect())
 
     if df_uid.empty is True:
-        print("没找到UID，该地址不在监控列表")
         return
     else:  # UID存在
         print("找到UID")
         print(df_uid.head().f_uid[0])
 
-        query_sql = 'select * from t_monitor_hash where f_hash = "' + tx.hash + '"'
+        query_sql = 'select * from t_monitor_hash where f_hash = "' + tx.t_hash + '"'
         df_hash = pd.read_sql_query(text(query_sql), con=monitor_engine.connect())
 
         if df_hash.empty is True:  # 在状态hash中没找到
@@ -287,7 +288,6 @@ def KafkaMatchTxLogic(tx):
 
 def ParseLog(log_data, blocksnum, transaction_at):
     list = []
-    count = 0
 
     for obj in enumerate(log_data):
         idx = obj[0]
@@ -334,8 +334,6 @@ def ParseLog(log_data, blocksnum, transaction_at):
             list.append(t20tx)
 
             KafkaTxLogic(t20tx) # 充值交易
-            count = count+1
-            print(count)
     return list
 
 
@@ -396,12 +394,9 @@ def parseTxAndStoreTrc(block_num, delay=0):
 
     ContactArray = GetContactArray()
     # 这里是TRC和TRC10交易，以48896576为例，158笔 和浏览器对应
-    count = 0
     tx_list = []
     contract_list = []
     for transaction in transactionsData['transactions']:
-        contract_address = ""
-        tx = Transaction()
         if 'contract_address' in transaction['raw_data']['contract'][0]['parameter']['value']: # 合约交易
             try:
                 contract_in_hex = transaction['raw_data']['contract'][0]['parameter']['value']['contract_address']
@@ -460,13 +455,10 @@ def parseTxAndStoreTrc(block_num, delay=0):
                     t_is_contract="False"
                 )
                 tx_list.append(tx)
-                contract = Contract()
             else:  # resource = "energy"
                 continue
         KafkaMatchTxLogic(tx)  # 状态hash匹配
         KafkaTxLogic(tx)  # 充值交易
-        count = count + 1
-        print(count)
 
     # 更新task当前高度
     new_height = block_num + 1
@@ -506,7 +498,8 @@ while True:
         start_height = df.num
     # 当数据库的高度比当前高度小(delay+1)
     if start_height[0] + delay + 1 <= now_block_num:
-        print("开始处理TRC20交易，当前处理的高度为： " + str(start_height[0]))
+        cur_time = str(datetime.datetime.now())  # 获取当前时间
+        print("开始处理TRC20交易，当前处理的高度为： " + str(start_height[0]) + "当前时间：" + cur_time)
         parseLogStoreTrc20(int(start_height[0]), 0)
 
     # 这里应该从db中读取TRC任务高度
@@ -524,7 +517,9 @@ while True:
         start_height = df.num
     # 当数据库的高度比当前高度小(delay+1)
     if start_height[0] + delay + 1 <= now_block_num:
-        print("开始处理TRC交易，当前处理的高度为： " + str(start_height[0]))
+        cur_time = str(datetime.datetime.now())  # 获取当前时间
+        print("开始处理TRC交易，当前处理的高度为： " + str(start_height[0]) + "当前时间：" + cur_time)
+
         parseTxAndStoreTrc(int(start_height[0]), 0)
 
     pass

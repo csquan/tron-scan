@@ -299,6 +299,8 @@ def ParseLog(log_data, blocksnum, transaction_at):
         if "log" not in logs:
             continue
         for log in logs["log"]:
+            if "topics" not in log:
+                continue
             if len(log["topics"]) != 3:
                 continue
             if len(log["topics"][0]) != 64 or len(log["topics"][1]) != 64 or len(log["topics"][2]) != 64:

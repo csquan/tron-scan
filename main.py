@@ -299,6 +299,8 @@ def ParseLog(log_data, blocksnum, transaction_at):
         if "log" not in logs:
             continue
         for log in logs["log"]:
+            if "topics" not in log:
+                continue
             if len(log["topics"]) != 3:
                 continue
             if len(log["topics"][0]) != 64 or len(log["topics"][1]) != 64 or len(log["topics"][2]) != 64:
@@ -529,6 +531,6 @@ while True:
         cur_time = str(datetime.datetime.now())  # 获取当前时间
         print("开始处理TRC交易，当前处理的高度为： " + str(start_height[0]) + "当前时间：" + cur_time)
 
-        parseTxAndStoreTrc(int(start_height[0]), 0)
+        #parseTxAndStoreTrc(int(start_height[0]), 0)
 
     pass

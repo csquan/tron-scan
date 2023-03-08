@@ -4,7 +4,6 @@ import math
 import os.path
 import codecs
 from tronapi.tronapi import Tronapi
-from vendor.ThreadPool import ThreadPool, WorkRequest
 import time
 import base58
 from tronapi import keys
@@ -12,12 +11,10 @@ from sqlalchemy import create_engine
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy import Column, String, Integer
 from sqlalchemy.orm import sessionmaker
-import pandas as pd
 from sqlalchemy import text
-from kafka import KafkaProducer
-from loguru import logger
+from kafka3 import KafkaProducer
 import binascii
-
+import pandas as pd
 import json
 
 decode_hex = codecs.getdecoder("hex_codec")
@@ -196,7 +193,7 @@ def on_send_success(record_metadata=None):
     print(record_metadata.topic)
 
 def on_send_error(excp=None):
-    logger.error('I am an errback', exc_info=excp)
+    print('I am an errback', exc_info=excp)
 
 
 # TRC20/TRC发送kafka逻辑（充值）： 状态hash表：monitor_hash 监控表：monitor
@@ -492,7 +489,6 @@ while True:
         GetNowBlock = tronapi.getConfirmedCurrentBlock()
     except Exception as e:
         # 过于频繁的请求波场接口可能会强制限制一段时间,此时sleep一下
-        print(e)
         time.sleep(5)
         continue
     # 这里应该从db中读取TRC20的任务高度
@@ -529,6 +525,6 @@ while True:
     # 当数据库的高度比当前高度小(delay+1)
     if start_height[0] + delay + 1 <= now_block_num:
         print("开始处理TRC交易，当前处理的高度为： " + str(start_height[0]))
-        #parseTxAndStoreTrc(int(start_height[0]), 0)
+        parseTxAndStoreTrc(int(start_height[0]), 0)
 
     pass

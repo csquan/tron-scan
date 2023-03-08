@@ -374,6 +374,13 @@ def hexStr_to_str(hex_str):
     str_bin = binascii.unhexlify(hex)
     return str_bin.decode('utf-8')
 
+def getMonitors():
+    query_sql = 'select * from t_monitor'
+    df = pd.read_sql_query(text(query_sql), con=monitor_engine.connect())
+    print(df.all())
+
+
+
 def parseTxAndStoreTrc(block_num, delay=0):
     time.sleep(delay)
     tron_api = Tronapi()
@@ -483,6 +490,8 @@ while True:
         # 过于频繁的请求波场接口可能会强制限制一段时间,此时sleep一下
         time.sleep(5)
         continue
+    # 这里首先读取监控列表
+    monitors=getMonitors()
     # 这里应该从db中读取TRC20的任务高度
     sql = r'select * from f_task where name="TRC20"'
     # 读取SQL数据库

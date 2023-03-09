@@ -229,7 +229,7 @@ def KafkaTxLogic(tx):
             a.TxHash = tx.t_hash
             a.Chain = "trx"
             a.ContractAddr = tx.t_contract_addr
-            a.Decimals = "0"
+            a.Decimals = 0
             a.AssetSymbol = ""
             a.TxHeight = 0
             a.CurChainHeight = 0

@@ -39,23 +39,6 @@ kafka_server = "172.31.46.139:9092"
 tx_tpoic = "tx-topic"
 matched_topic = "match-topic"
 
-class TxKafka:
-    def __init__(self):
-        self.From = ""
-        self.To = ""
-        self.Uid = ""
-        self.Amount = ""
-        self.TokenType = 0
-        self.TxHash = ""
-        self.Chain = ""
-        self.ContractAddr = ""
-        self.Decimals = 0
-        self.AssetSymbol = ""
-        self.TxHeight = 0
-        self.CurChainHeight = 0
-        self.LogIndex = 0
-
-
 class TxMatchPush:
     def __init__(self):
         self.Hash = ""
@@ -208,7 +191,8 @@ def on_send_error(excp=None):
 # 2 从状态hash表中取出当前的交易hash，如果没找到，则进入下一阶段
 # 3 db中取出token的精度（addtoken添加进db）
 # 4 组装消息发送
-def KafkaTxLogic(tx,contract_obj):
+def KafkaTxLogic(tx,contract_obj,block_num):
+    txKafka = {}
     query_sql = 'select f_uid from t_monitor where f_addr = "' + tx.t_toAddr + '"'
     df_uid = pd.read_sql_query(text(query_sql), con=monitor_engine.connect())
 
@@ -222,23 +206,21 @@ def KafkaTxLogic(tx,contract_obj):
         df_hash = pd.read_sql_query(text(query_sql), con=monitor_engine.connect())
 
         if df_hash.empty is True:  # 在状态hash中没找到
-            a = TxKafka()
-            a.Uid = "test"
-            a.To = tx.t_toAddr
-            a.From = tx.t_fromAddr
-            a.Amount = tx.t_amount
-            a.TokenType = 2
-            a.TxHash = tx.t_hash
-            a.Chain = "trx"
-            a.ContractAddr = tx.t_contract_addr
-            a.Decimals = contract_obj.t_decimal
-            a.AssetSymbol = ""
-            a.TxHeight = 0
-            a.CurChainHeight = 0
-            a.LogIndex = 0
+            txKafka["from"] = tx.t_fromAddr
+            txKafka["uid"] = df_uid.head().f_uid[0]
+            txKafka["to"] = tx.t_toAddr
+            txKafka["amount"] = str(tx.t_amount)
+            txKafka["token_type"] = 2
+            txKafka["tx_hash"] = tx.t_hash
+            txKafka["chain"] = "trx"
+            txKafka["contract_addr"] = tx.t_contract_addr
+            txKafka["decimals"] = contract_obj.t_decimal
+            txKafka["asset_symbol"] = contract_obj.t_symbol
+            txKafka["tx_height"] = block_num
+            txKafka["cur_chain_height"] = block_num + 19
+            txKafka["log_index"] = 0
 
-
-            aa_str = json.dumps(a,default=lambda o: o.__dict__,sort_keys=True, indent=4)
+            aa_str = json.dumps(txKafka,default=lambda o: o.__dict__,sort_keys=True, indent=4)
 
             bootstrap_servers = [kafka_server]
 
@@ -391,7 +373,7 @@ def ParseLog(log_data, blocksnum, transaction_at):
                     t_total_supply=str(totalSupply)
                 )
 
-            KafkaTxLogic(t20tx, contract_obj)  # 充值交易
+            KafkaTxLogic(t20tx, contract_obj,blocksnum)  # 充值交易
 
             contract_hex_list.append(contract_in_hex)
             contract_list.append(contract_obj)
@@ -579,7 +561,7 @@ def parseTxAndStoreTrc(block_num, delay=0):
             else:  # resource = "energy"
                 continue
         KafkaMatchTxLogic(tx)  # 状态hash匹配
-        KafkaTxLogic(tx, contract_obj)  # 充值交易
+        KafkaTxLogic(tx, contract_obj,block_num)  # 充值交易
 
     # 更新task当前高度
     new_height = block_num + 1
@@ -610,7 +592,7 @@ while True:
     df = pd.read_sql_query(sql=text(sql), con=engine.connect())  # 读取SQL数据库，并获得pandas数据帧。
     now_block_num = int(GetNowBlock.get('block_header').get('raw_data').get('number'))
     handle_block_count = 0
-    delay = 0  # trx的不可逆高度 - 目前从rpc获取来的区块比最新高度低19个区块，足够不可逆了
+    delay = 19 # trx的不可逆高度 - 目前从rpc获取来的区块比最新高度低19个区块，足够不可逆了
 
     start_height = 0
     if df.empty is True:

@@ -274,7 +274,7 @@ def KafkaMatchTxLogic(tx):
 
         aa_str = json.dumps(a,default=lambda o: o.__dict__,sort_keys=True, indent=4)
 
-        bootstrap_servers = ['192.168.31.242:9092']
+        bootstrap_servers = ['kafka:9092']
 
         producer = KafkaProducer(bootstrap_servers=bootstrap_servers)
 

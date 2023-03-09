@@ -24,10 +24,12 @@ decode_hex = codecs.getdecoder("hex_codec")
 TransferTopic = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
 
 engine = create_engine('mysql+mysqldb://root:fat-chain-root-password@my-sql:3306/TronBlock')
+#engine = create_engine('mysql+mysqldb://root:csquan253905@127.0.0.1:3306/TronBlock')
 Session = sessionmaker(bind=engine)
 session = Session()
 
 monitor_engine = create_engine('mysql+mysqldb://root:fat-chain-root-password@my-sql:3306/Hui_Collect', pool_size=0, max_overflow=-1)
+#monitor_engine = create_engine('mysql+mysqldb://root:csquan253905@127.0.0.1:3306/HuiCollect', pool_size=0, max_overflow=-1)
 monitor_Session = sessionmaker(bind=monitor_engine)
 monitor_session = monitor_Session()
 
@@ -206,7 +208,7 @@ def on_send_error(excp=None):
 # 2 从状态hash表中取出当前的交易hash，如果没找到，则进入下一阶段
 # 3 db中取出token的精度（addtoken添加进db）
 # 4 组装消息发送
-def KafkaTxLogic(tx):
+def KafkaTxLogic(tx,contract_obj):
     query_sql = 'select f_uid from t_monitor where f_addr = "' + tx.t_toAddr + '"'
     df_uid = pd.read_sql_query(text(query_sql), con=monitor_engine.connect())
 
@@ -229,7 +231,7 @@ def KafkaTxLogic(tx):
             a.TxHash = tx.t_hash
             a.Chain = "trx"
             a.ContractAddr = tx.t_contract_addr
-            a.Decimals = 0
+            a.Decimals = contract_obj.t_decimal
             a.AssetSymbol = ""
             a.TxHeight = 0
             a.CurChainHeight = 0
@@ -240,13 +242,13 @@ def KafkaTxLogic(tx):
 
             bootstrap_servers = [kafka_server]
 
-            producer = KafkaProducer(bootstrap_servers=bootstrap_servers)
+            #producer = KafkaProducer(bootstrap_servers=bootstrap_servers)
 
-            bb = bytes(aa_str, 'utf-8')
+            #bb = bytes(aa_str, 'utf-8')
 
-            producer.send(
-                topic=tx_tpoic,
-                value=bb).add_callback(on_send_success).add_errback(on_send_error)
+            #producer.send(
+            #    topic=tx_tpoic,
+            #    value=bb).add_callback(on_send_success).add_errback(on_send_error)
 
 
 
@@ -291,6 +293,9 @@ def KafkaMatchTxLogic(tx):
 
 def ParseLog(log_data, blocksnum, transaction_at):
     list = []
+    contract_hex_list = []
+    contract_list = []
+    tron_api = Tronapi()
 
     for obj in enumerate(log_data):
         idx = obj[0]
@@ -309,6 +314,7 @@ def ParseLog(log_data, blocksnum, transaction_at):
             if len(log["topics"][0]) != 64 or len(log["topics"][1]) != 64 or len(log["topics"][2]) != 64:
                 continue
             contractaddr = log["address"]
+            contract_in_hex = "41" + contractaddr
             contractaddr = keys.to_base58check_address(contractaddr)
             if log["topics"][0][0:2] != "0x":
                 log["topics"][0] = "0x" + log["topics"][0]
@@ -338,8 +344,58 @@ def ParseLog(log_data, blocksnum, transaction_at):
             )
             list.append(t20tx)
 
-            KafkaTxLogic(t20tx) # 充值交易
-    return list
+            should_call_api = True
+            # 1.先在当前的contract_list中查找 2.然后在db中查找 3.如果都找不到，再去远程接口取
+            if contract_in_hex in contract_hex_list:
+                index = contract_hex_list.index(contract_in_hex)
+                contract_obj = contract_list[index]
+                should_call_api = False
+            else:
+                # 这里应该从db中读取TRC合约信息
+                contract_obj = session.query(Contract).filter(Contract.t_contract_addr == contractaddr).first()
+                if contract_obj is not None:
+                    should_call_api = False
+            if should_call_api is True:
+                print("未在缓存和db中找到，开始取线上取")
+                res = tron_api.getContractInfo("name()", contract_in_hex)
+                if res['result']['result'] is True:
+                    print(res['constant_result'][0])
+                    print("len")
+                    print(res['constant_result'][0][64:128].lstrip('0'))
+                    length_str=res['constant_result'][0][64:128].lstrip('0')
+                    print(length_str)
+                    length=int(str(length_str),16)
+                    print(length)
+                    print("name")
+                    print(res['constant_result'][0][128:128+length*2])
+                    name = bytes.fromhex(res['constant_result'][0][128:128+length*2]).decode()
+                    print("name" + name)
+                res = tron_api.getContractInfo("symbol()", contract_in_hex)
+                if res['result']['result'] is True:
+                    symbol = bytes.fromhex(res['constant_result'][0][128:192].rstrip('0')).decode()
+                    print("symbol:" + symbol)
+                res = tron_api.getContractInfo("decimals()", contract_in_hex)
+                if res['result']['result'] is True:
+                    decimals = res['constant_result'][0].lstrip('0')
+                    print("decimal:" + decimals)
+                res = tron_api.getContractInfo("totalSupply()", contract_in_hex)
+                if res['result']['result'] is True:
+                    totalSupply = int(res['constant_result'][0].lstrip('0'), 16)
+                    print("totalSupply:" + str(totalSupply))
+
+                contract_obj = Contract(
+                    t_contract_addr=contractaddr,
+                    t_name=name,
+                    t_symbol=symbol,
+                    t_decimal=decimals,
+                    t_total_supply=str(totalSupply)
+                )
+
+            KafkaTxLogic(t20tx, contract_obj)  # 充值交易
+
+            contract_hex_list.append(contract_in_hex)
+            contract_list.append(contract_obj)
+    return list, contract_list
 
 
 def parseLogStoreTrc20(block_num, delay):
@@ -362,12 +418,13 @@ def parseLogStoreTrc20(block_num, delay):
     logData = tron_api.getTxInfoByNum(block_num)
     try:
         # 解析log为TRC20交易
-        log_list = ParseLog(logData, block_num, transaction_at)
+        log_list, contract_list = ParseLog(logData, block_num, transaction_at)
         # 更新task当前高度
         new_height = block_num + 1
         update_sql = 'update f_task set num = "' + str(new_height) + '" where name = "TRC20"'
         session.execute(text(update_sql))
         session.add_all(log_list)
+        session.add_all(contract_list)
         # 这里保证事物一次提交
         session.commit()
     except Exception as e:
@@ -401,6 +458,7 @@ def parseTxAndStoreTrc(block_num, delay=0):
     # 这里是TRC和TRC10交易，以48896576为例，158笔 和浏览器对应
     tx_list = []
     contract_list = []
+    contract_hex_list = []  # 为了查找方便，设置一个额外的数据结构
     for transaction in transactionsData['transactions']:
         if 'contract_address' in transaction['raw_data']['contract'][0]['parameter']['value']: # 合约交易
             try:
@@ -443,6 +501,48 @@ def parseTxAndStoreTrc(block_num, delay=0):
                 t_is_contract="True"
             )
             tx_list.append(tx)
+
+            should_call_api=True
+            # 1.先在当前的contract_list中查找 2.然后在db中查找 3.如果都找不到，再去远程接口取
+            if contract_in_hex in contract_hex_list:
+                index = contract_hex_list.index(contract_in_hex)
+                contract_obj = contract_list[index]
+                should_call_api = False
+            else:
+                # 这里应该从db中读取TRC合约信息
+                contract_obj = session.query(Contract).filter(Contract.t_contract_addr == contract).first()
+                if contract_obj is not None:
+                    should_call_api = False
+
+            if should_call_api is True:
+                print("未在缓存和db中找到，开始取线上取")
+                res = tron_api.getContractInfo("name()", contract_in_hex)
+                if res['result']['result'] is True:
+                    name = bytes.fromhex(res['constant_result'][0][128:192].rstrip('0')).decode()
+                    print("name" + name)
+                res = tron_api.getContractInfo("symbol()", contract_in_hex)
+                if res['result']['result'] is True:
+                    symbol = bytes.fromhex(res['constant_result'][0][128:192].rstrip('0')).decode()
+                    print("symbol:" + symbol)
+                res = tron_api.getContractInfo("decimals()", contract_in_hex)
+                if res['result']['result'] is True:
+                    decimals = res['constant_result'][0].lstrip('0')
+                    print("decimal:" + decimals)
+                res = tron_api.getContractInfo("totalSupply()", contract_in_hex)
+                if res['result']['result'] is True:
+                    totalSupply = int(res['constant_result'][0].lstrip('0'), 16)
+                    print("totalSupply:" + str(totalSupply))
+
+                contract_obj = Contract(
+                    t_contract_addr=contract,
+                    t_name=name,
+                    t_symbol=symbol,
+                    t_decimal=decimals,
+                    t_total_supply=str(totalSupply)
+                )
+
+            contract_hex_list.append(contract_in_hex)
+            contract_list.append(contract_obj)
         else:  # 非合约交易
             tx_detail = transaction['raw_data']['contract'][0]['parameter']['value']
             if "amount" in tx_detail:
@@ -463,10 +563,14 @@ def parseTxAndStoreTrc(block_num, delay=0):
                     t_is_contract="False"
                 )
                 tx_list.append(tx)
+                contract_obj = Contract()  # 本币
+                contract_obj.t_decimal = 6
+                contract_obj.t_symbol = "trx"
+                contract_obj.t_name = "trx"
             else:  # resource = "energy"
                 continue
         KafkaMatchTxLogic(tx)  # 状态hash匹配
-        KafkaTxLogic(tx)  # 充值交易
+        KafkaTxLogic(tx, contract_obj)  # 充值交易
 
     # 更新task当前高度
     new_height = block_num + 1

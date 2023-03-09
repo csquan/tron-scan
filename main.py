@@ -12,30 +12,32 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy import Column, String, Integer
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import text
-from kafka3 import KafkaProducer
+from kafka import KafkaProducer
 import binascii
 import pandas as pd
 import json
 import datetime
-
+from collections import defaultdict
 
 decode_hex = codecs.getdecoder("hex_codec")
 
 TransferTopic = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
 
-engine = create_engine('mysql+mysqldb://root:fat-chain-root-password@my-sql:3306/TronBlock')
+#engine = create_engine('mysql+mysqldb://root:fat-chain-root-password@my-sql:3306/TronBlock')
+engine = create_engine('mysql+mysqldb://root:csquan253905@127.0.0.1:3306/TronBlock')
 Session = sessionmaker(bind=engine)
 session = Session()
 
-monitor_engine = create_engine('mysql+mysqldb://root:fat-chain-root-password@my-sql:3306/Hui_Collect', pool_size=0, max_overflow=-1)
+#monitor_engine = create_engine('mysql+mysqldb://root:fat-chain-root-password@my-sql:3306/Hui_Collect', pool_size=0, max_overflow=-1)
+monitor_engine = create_engine('mysql+mysqldb://root:csquan253905@127.0.0.1:3306/HuiCollect', pool_size=0, max_overflow=-1)
 monitor_Session = sessionmaker(bind=monitor_engine)
 monitor_session = monitor_Session()
 
 Base = declarative_base()
 
 kafka_server = "172.31.46.139:9092"
-tx_tpoic = "tx-topic"
-matched_topic = "match-topic"
+tx_tpoic = "tx-arrived4"
+matched_topic = "tx_matched0"
 
 class TxKafka:
     def __init__(self):
@@ -52,6 +54,14 @@ class TxKafka:
         self.TxHeight = 0
         self.CurChainHeight = 0
         self.LogIndex = 0
+
+
+class Monitor:
+    def __init__(self):
+        self.addr = ""
+        self.chain = ""
+        self.uid = ""
+        self.appid = ""
 
 
 class TxMatchPush:
@@ -183,6 +193,13 @@ def GetWalletArray():
             contract_array.append(row)
     return contract_array
 
+def initMonitor(addr,chain,uid,appid):
+    monitor = Monitor()
+    monitor.addr = addr
+    monitor.chain = chain
+    monitor.uid = uid
+    monitor.appid = appid
+    return monitor
 
 def GetContactArray():
     contract_array = []
@@ -379,6 +396,26 @@ def hexStr_to_str(hex_str):
     str_bin = binascii.unhexlify(hex)
     return str_bin.decode('utf-8')
 
+def shade_array(df):
+   addr = df['f_addr']
+   chain = df['f_chain']
+   uid = df['f_uid']
+   appid = df['f_appid']
+   ret={}
+   ret[addr] = initMonitor(addr,chain,uid,appid)
+   return ret
+
+def GetMonitor():
+    query_sql = 'select * from t_monitor'
+    df= pd.read_sql_query(text(query_sql), con=monitor_engine.connect())
+
+    if df.empty is True:
+        return
+    else:  # UID存在
+        print("找到UID")
+        by_addr_dict = dict(tuple(df.groupby('f_addr')))
+        for key in by_addr_dict:
+            print(key, ":", by_addr_dict[key])
 def parseTxAndStoreTrc(block_num, delay=0):
     time.sleep(delay)
     tron_api = Tronapi()
@@ -486,6 +523,7 @@ tronapi = Tronapi()
 
 while True:
     try:
+        GetMonitor()
         GetNowBlock = tronapi.getConfirmedCurrentBlock()
     except Exception as e:
         # 过于频繁的请求波场接口可能会强制限制一段时间,此时sleep一下

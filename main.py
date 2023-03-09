@@ -423,6 +423,9 @@ def parseTxAndStoreTrc(block_num, delay=0):
                 continue
             from_address = keys.to_base58check_address(
                 transaction['raw_data']['contract'][0]['parameter']['value']['owner_address'])
+            to_str = transaction['raw_data']["contract"][0]["parameter"]["value"]["data"][9:72].lstrip("0")
+            if len(to_str) == 0:
+                continue
             to_address = keys.to_base58check_address(
                 transaction['raw_data']["contract"][0]["parameter"]["value"]["data"][9:72].lstrip("0"))
             # write to mysql

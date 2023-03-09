@@ -242,13 +242,13 @@ def KafkaTxLogic(tx,contract_obj):
 
             bootstrap_servers = [kafka_server]
 
-            #producer = KafkaProducer(bootstrap_servers=bootstrap_servers)
+            producer = KafkaProducer(bootstrap_servers=bootstrap_servers)
 
-            #bb = bytes(aa_str, 'utf-8')
+            bb = bytes(aa_str, 'utf-8')
 
-            #producer.send(
-            #    topic=tx_tpoic,
-            #    value=bb).add_callback(on_send_success).add_errback(on_send_error)
+            producer.send(
+                topic=tx_tpoic,
+                value=bb).add_callback(on_send_success).add_errback(on_send_error)
 
 
 
@@ -518,7 +518,16 @@ def parseTxAndStoreTrc(block_num, delay=0):
                 print("未在缓存和db中找到，开始取线上取")
                 res = tron_api.getContractInfo("name()", contract_in_hex)
                 if res['result']['result'] is True:
-                    name = bytes.fromhex(res['constant_result'][0][128:192].rstrip('0')).decode()
+                    print(res['constant_result'][0])
+                    print("len")
+                    print(res['constant_result'][0][64:128].lstrip('0'))
+                    length_str = res['constant_result'][0][64:128].lstrip('0')
+                    print(length_str)
+                    length = int(str(length_str), 16)
+                    print(length)
+                    print("name")
+                    print(res['constant_result'][0][128:128 + length * 2])
+                    name = bytes.fromhex(res['constant_result'][0][128:128 + length * 2]).decode()
                     print("name" + name)
                 res = tron_api.getContractInfo("symbol()", contract_in_hex)
                 if res['result']['result'] is True:

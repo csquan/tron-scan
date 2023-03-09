@@ -27,7 +27,7 @@ engine = create_engine('mysql+mysqldb://root:csquan253905@localhost:3306/TronBlo
 Session = sessionmaker(bind=engine)
 session = Session()
 
-monitor_engine = create_engine('mysql+mysqldb://root:csquan253905@localhost:3306/TronCollect', pool_size=0, max_overflow=-1)
+monitor_engine = create_engine('mysql+mysqldb://root:csquan253905@localhost:3306/HuiCollect', pool_size=0, max_overflow=-1)
 monitor_Session = sessionmaker(bind=monitor_engine)
 monitor_session = monitor_Session()
 
@@ -221,7 +221,7 @@ def KafkaTxLogic(tx):
             a.Uid = "test"
             a.To = tx.t_toAddr
             a.From = tx.t_fromAddr
-            a.Amount = tx.t_amount
+            a.Amount = str(tx.t_amount)
             a.TokenType = 2
             a.TxHash = tx.t_hash
             a.Chain = "trx"
@@ -444,6 +444,8 @@ def parseTxAndStoreTrc(block_num, delay=0):
                 t_is_contract="True"
             )
             tx_list.append(tx)
+            if tx.t_hash == "e2578f5b8993d7d8bef6b47d9ad419a747e461e8a78aee77b38c91e432bfc7be":
+                print("find hash")
         else:  # 非合约交易
             tx_detail = transaction['raw_data']['contract'][0]['parameter']['value']
             if "amount" in tx_detail:
@@ -464,6 +466,8 @@ def parseTxAndStoreTrc(block_num, delay=0):
                     t_is_contract="False"
                 )
                 tx_list.append(tx)
+                if tx.t_hash =="e2578f5b8993d7d8bef6b47d9ad419a747e461e8a78aee77b38c91e432bfc7be":
+                    print("find hash")
             else:  # resource = "energy"
                 continue
         KafkaMatchTxLogic(tx)  # 状态hash匹配
@@ -511,7 +515,7 @@ while True:
     if start_height[0] + delay + 1 <= now_block_num:
         cur_time = str(datetime.datetime.now())  # 获取当前时间
         print("开始处理TRC20交易，当前处理的高度为： " + str(start_height[0]) + "当前时间：" + cur_time)
-        parseLogStoreTrc20(int(start_height[0]), 0)
+        #parseLogStoreTrc20(int(start_height[0]), 0)
 
     # 这里应该从db中读取TRC任务高度
     sql = r'select * from f_task where name="TRC"'
@@ -530,7 +534,6 @@ while True:
     if start_height[0] + delay + 1 <= now_block_num:
         cur_time = str(datetime.datetime.now())  # 获取当前时间
         print("开始处理TRC交易，当前处理的高度为： " + str(start_height[0]) + "当前时间：" + cur_time)
-
-        #parseTxAndStoreTrc(int(start_height[0]), 0)
+        parseTxAndStoreTrc(int(start_height[0]), 0)
 
     pass

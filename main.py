@@ -33,6 +33,9 @@ monitor_session = monitor_Session()
 
 Base = declarative_base()
 
+kafka_server = "172.31.46.139:9092"
+tx_tpoic = "tx-topic"
+matched_topic = "match-topic"
 
 class TxKafka:
     def __init__(self):
@@ -235,14 +238,14 @@ def KafkaTxLogic(tx):
 
             aa_str = json.dumps(a,default=lambda o: o.__dict__,sort_keys=True, indent=4)
 
-            bootstrap_servers = ['192.168.31.242:9092']
+            bootstrap_servers = [kafka_server]
 
             producer = KafkaProducer(bootstrap_servers=bootstrap_servers)
 
             bb = bytes(aa_str, 'utf-8')
 
             producer.send(
-                topic="tx-topic",
+                topic=tx_tpoic,
                 value=bb).add_callback(on_send_success).add_errback(on_send_error)
 
 
@@ -274,14 +277,14 @@ def KafkaMatchTxLogic(tx):
 
         aa_str = json.dumps(a,default=lambda o: o.__dict__,sort_keys=True, indent=4)
 
-        bootstrap_servers = ['kafka:9092']
+        bootstrap_servers = [kafka_server]
 
         producer = KafkaProducer(bootstrap_servers=bootstrap_servers)
 
         bb = bytes(aa_str, 'utf-8')
 
         producer.send(
-            topic="match-topic",
+            topic=matched_topic,
             value=bb).add_callback(on_send_success).add_errback(on_send_error)
 
 

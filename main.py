@@ -18,7 +18,6 @@ import pandas as pd
 import json
 import datetime
 
-
 decode_hex = codecs.getdecoder("hex_codec")
 
 TransferTopic = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
@@ -240,24 +239,26 @@ def KafkaTxLogic(tx,contract_obj,block_num):
 # 2 从状态hash表中取出当前的交易hash，如果没找到，则进入下一阶段
 # 3 db中取出token的精度（addtoken添加进db）
 # 4 组装消息发送
-def KafkaMatchTxLogic(tx):
+def KafkaMatchTxLogic(tx,transaction,block_num):
     query_sql = 'select * from t_monitor_hash where f_hash = "' + tx.t_hash + '"'
     df_match_hash = pd.read_sql_query(text(query_sql), con=monitor_engine.connect())
+
+    txpush = {}
 
     if df_match_hash.empty is False:  # 在状态hash中匹配到,df_match_hash取值
         print("在状态hash表中匹配到" + tx.hash)
         a = TxMatchPush()
-        a.Hash = tx.hash
-        a.Chain = "trx"
-        a.TxHeight = ""
-        a.CurChainHeight = ""
-        a.OrderID = "test"
-        a.Success = 1
-        a.GasLimit = ""
-        a.GasPrice = ""
-        a.GasUsed = ""
-        a.ContractAddr = tx.contract_addr
-        a.Index = 0
+        txpush["hash"] = tx.hash
+        txpush["chain"] = "trx"
+        txpush["tx_height"] = block_num
+        txpush["cur_chain_height"] = block_num + 18
+        txpush["orderID"] = time.time()
+        txpush["contract_addr"] = tx.contract_addr
+
+        if transaction["ret"][0]["contractRet"] != "SUCCESS":
+            a.Success = 0
+        else:
+            a.Success = 1
 
         aa_str = json.dumps(a,default=lambda o: o.__dict__,sort_keys=True, indent=4)
 
@@ -570,7 +571,7 @@ def parseTxAndStoreTrc(block_num, delay=0):
                 contract_obj.t_name = "trx"
             else:  # resource = "energy"
                 continue
-        KafkaMatchTxLogic(tx)  # 状态hash匹配
+        KafkaMatchTxLogic(tx,transaction,block_num)  # 状态hash匹配
         KafkaTxLogic(tx, contract_obj,block_num)  # 充值交易
 
     # 更新task当前高度

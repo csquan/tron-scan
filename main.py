@@ -12,7 +12,7 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy import Column, String, Integer
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import text
-from kafka3 import KafkaProducer
+from kafka import KafkaProducer
 import binascii
 import pandas as pd
 import json
@@ -23,13 +23,13 @@ decode_hex = codecs.getdecoder("hex_codec")
 
 TransferTopic = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
 
-engine = create_engine('mysql+mysqldb://root:fat-chain-root-password@my-sql:3306/TronBlock')
-#engine = create_engine('mysql+mysqldb://root:csquan253905@127.0.0.1:3306/TronBlock')
+#engine = create_engine('mysql+mysqldb://root:fat-chain-root-password@my-sql:3306/TronBlock')
+engine = create_engine('mysql+mysqldb://root:csquan253905@127.0.0.1:3306/TronBlock')
 Session = sessionmaker(bind=engine)
 session = Session()
 
-monitor_engine = create_engine('mysql+mysqldb://root:fat-chain-root-password@my-sql:3306/Hui_Collect', pool_size=0, max_overflow=-1)
-#monitor_engine = create_engine('mysql+mysqldb://root:csquan253905@127.0.0.1:3306/HuiCollect', pool_size=0, max_overflow=-1)
+#monitor_engine = create_engine('mysql+mysqldb://root:fat-chain-root-password@my-sql:3306/Hui_Collect', pool_size=0, max_overflow=-1)
+monitor_engine = create_engine('mysql+mysqldb://root:csquan253905@127.0.0.1:3306/HuiCollect', pool_size=0, max_overflow=-1)
 monitor_Session = sessionmaker(bind=monitor_engine)
 monitor_session = monitor_Session()
 
@@ -326,6 +326,7 @@ def ParseLog(log_data, blocksnum, transaction_at):
             )
             list.append(t20tx)
 
+
             should_call_api = True
             # 1.先在当前的contract_list中查找 2.然后在db中查找 3.如果都找不到，再去远程接口取
             if contract_in_hex in contract_hex_list:
@@ -342,19 +343,26 @@ def ParseLog(log_data, blocksnum, transaction_at):
                 res = tron_api.getContractInfo("name()", contract_in_hex)
                 if res['result']['result'] is True:
                     print(res['constant_result'][0])
-                    print("len")
+                    print("name")
                     print(res['constant_result'][0][64:128].lstrip('0'))
                     length_str=res['constant_result'][0][64:128].lstrip('0')
                     print(length_str)
                     length=int(str(length_str),16)
                     print(length)
-                    print("name")
-                    print(res['constant_result'][0][128:128+length*2])
+                    print("name:" + res['constant_result'][0][128:128+length*2])
                     name = bytes.fromhex(res['constant_result'][0][128:128+length*2]).decode()
-                    print("name" + name)
+                    print("name:" + name)
                 res = tron_api.getContractInfo("symbol()", contract_in_hex)
                 if res['result']['result'] is True:
-                    symbol = bytes.fromhex(res['constant_result'][0][128:192].rstrip('0')).decode()
+                    print(res['constant_result'][0])
+                    print("symbol")
+                    print(res['constant_result'][0][64:128].lstrip('0'))
+                    length_str=res['constant_result'][0][64:128].lstrip('0')
+                    print(length_str)
+                    length=int(str(length_str),16)
+                    print(length)
+                    print("symbol:" + res['constant_result'][0][128:128+length*2])
+                    symbol = bytes.fromhex(res['constant_result'][0][128:192]).decode()
                     print("symbol:" + symbol)
                 res = tron_api.getContractInfo("decimals()", contract_in_hex)
                 if res['result']['result'] is True:
@@ -454,6 +462,8 @@ def parseTxAndStoreTrc(block_num, delay=0):
                     continue
             except Exception as e:
                 print('错误:', e)
+                continue
+            if "data" not in transaction['raw_data']["contract"][0]["parameter"]["value"]:
                 continue
             func = transaction['raw_data']["contract"][0]["parameter"]["value"]["data"][0:8]
             if func != "a9059cbb":

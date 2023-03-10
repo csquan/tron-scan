@@ -38,35 +38,6 @@ kafka_server = "172.31.46.139:9092"
 tx_tpoic = "tx-topic"
 matched_topic = "match-topic"
 
-class TxMatchPush:
-    def __init__(self):
-        self.Hash = ""
-        self.Chain = ""
-        self.TxHeight = ""
-        self.CurChainHeight = ""
-        self.OrderId = 0
-        self.Success = ""
-        self.GasLimit = ""
-        self.GasPrice = ""
-        self.GasUsed = ""
-        self.Index = ""
-        self.ContractAddr = ""
-
-
-class TxMonitorHash:
-    def __init__(self):
-        self.Hash = ""
-        self.Chain = ""
-        self.OrderID = ""
-        self.PushState = ""
-        self.ReceiptState = 0
-        self.GetReceiptTimes = ""
-        self.GasLimit = ""
-        self.GasPrice = ""
-        self.GasUsed = ""
-        self.Index = ""
-        self.ContractAddr = ""
-
 class tasks(Base):
     __tablename__ = 'f_task'
 
@@ -190,26 +161,29 @@ def on_send_error(excp=None):
 # 2 从状态hash表中取出当前的交易hash，如果没找到，则进入下一阶段
 # 3 db中取出token的精度（addtoken添加进db）
 # 4 组装消息发送
-def KafkaTxLogic(tx,contract_obj,block_num):
+def KafkaTxLogic(tx,contract_obj, block_num, monitor_dict):
     txKafka = {}
-    query_sql = 'select f_uid from t_monitor where f_addr = "' + tx.t_toAddr + '"'
-    df_uid = pd.read_sql_query(text(query_sql), con=monitor_engine.connect())
-
-    if df_uid.empty is True:
+    if tx.t_toAddr not in monitor_dict:
         return
     else:  # UID存在
         print("找到UID")
-        print(df_uid.head().f_uid[0])
+        print(monitor_dict[tx.t_toAddr].f_uid)
+
+        for value in monitor_dict[tx.t_toAddr].f_uid:
+            txKafka["uid"] = value
+
+        if tx.t_contract_addr == "":
+            txKafka["token_type"] = 4  #trx 本币
+        else:
+            txKafka["token_type"] = 5  #trx代币
 
         query_sql = 'select * from t_monitor_hash where f_hash = "' + tx.t_hash + '"'
         df_hash = pd.read_sql_query(text(query_sql), con=monitor_engine.connect())
 
         if df_hash.empty is True:  # 在状态hash中没找到
             txKafka["from"] = tx.t_fromAddr
-            txKafka["uid"] = df_uid.head().f_uid[0]
             txKafka["to"] = tx.t_toAddr
             txKafka["amount"] = str(tx.t_amount)
-            txKafka["token_type"] = 2
             txKafka["tx_hash"] = tx.t_hash
             txKafka["chain"] = "trx"
             txKafka["contract_addr"] = tx.t_contract_addr
@@ -239,15 +213,12 @@ def KafkaTxLogic(tx,contract_obj,block_num):
 # 2 从状态hash表中取出当前的交易hash，如果没找到，则进入下一阶段
 # 3 db中取出token的精度（addtoken添加进db）
 # 4 组装消息发送
-def KafkaMatchTxLogic(tx,transaction,block_num):
-    query_sql = 'select * from t_monitor_hash where f_hash = "' + tx.t_hash + '"'
-    df_match_hash = pd.read_sql_query(text(query_sql), con=monitor_engine.connect())
-
+def KafkaMatchTxLogic(tx,transaction,block_num,monitor_hash_dict):
     txpush = {}
-
-    if df_match_hash.empty is False:  # 在状态hash中匹配到,df_match_hash取值
+    if tx.t_hash not in monitor_hash_dict:
+        return
+    else:
         print("在状态hash表中匹配到" + tx.hash)
-        a = TxMatchPush()
         txpush["hash"] = tx.hash
         txpush["chain"] = "trx"
         txpush["tx_height"] = block_num
@@ -256,9 +227,9 @@ def KafkaMatchTxLogic(tx,transaction,block_num):
         txpush["contract_addr"] = tx.contract_addr
 
         if transaction["ret"][0]["contractRet"] != "SUCCESS":
-            a.Success = 0
+            txpush["success"] = 0
         else:
-            a.Success = 1
+            txpush["success"] = 1
 
         aa_str = json.dumps(a,default=lambda o: o.__dict__,sort_keys=True, indent=4)
 
@@ -274,7 +245,7 @@ def KafkaMatchTxLogic(tx,transaction,block_num):
 
 
 
-def ParseLog(log_data, blocksnum, transaction_at):
+def ParseLog(log_data, blocksnum, transaction_at,monitor_dict):
     list = []
     contract_hex_list = []
     contract_list = []
@@ -382,21 +353,21 @@ def ParseLog(log_data, blocksnum, transaction_at):
                     t_total_supply=str(totalSupply)
                 )
 
-            KafkaTxLogic(t20tx, contract_obj,blocksnum)  # 充值交易
+            KafkaTxLogic(t20tx, contract_obj,blocksnum,monitor_dict)  # 充值交易
 
             contract_hex_list.append(contract_in_hex)
             contract_list.append(contract_obj)
     return list, contract_list
 
 
-def parseLogStoreTrc20(block_num, delay):
+def parseLogStoreTrc20(block_num, delay,monitor_dict):
     time.sleep(delay)
     tron_api = Tronapi()
     try:
         transactionsData = tron_api.getWalletsolidityBlockByNum(block_num)
     except Exception as e:
         print("可能接口请求过于频繁,因此休眠5秒后重新请求")
-        return parseLogStoreTrc20(block_num, 5)
+        return parseLogStoreTrc20(block_num, 5,monitor_dict)
     try:
         transaction_at = (transactionsData['block_header']['raw_data']['timestamp']) / 1000
         transaction_at = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(transaction_at))
@@ -409,7 +380,7 @@ def parseLogStoreTrc20(block_num, delay):
     logData = tron_api.getTxInfoByNum(block_num)
     try:
         # 解析log为TRC20交易
-        log_list, contract_list = ParseLog(logData, block_num, transaction_at)
+        log_list, contract_list = ParseLog(logData, block_num, transaction_at,monitor_dict)
         # 更新task当前高度
         new_height = block_num + 1
         update_sql = 'update f_task set num = "' + str(new_height) + '" where name = "TRC20"'
@@ -422,12 +393,36 @@ def parseLogStoreTrc20(block_num, delay):
         print(e)
         return
 
+
+def GetMonitor():
+    query_sql = 'select * from t_monitor'
+    df= pd.read_sql_query(text(query_sql), con=monitor_engine.connect())
+
+    if df.empty is True:
+        return
+    else:  # UID存在
+        by_addr_dict = dict(tuple(df.groupby('f_addr')))
+        for key in by_addr_dict:
+            print(key, ":", by_addr_dict[key])
+        return by_addr_dict
+
+def GetMonitorHash():
+    query_sql = 'select * from t_monitor_hash'
+    df= pd.read_sql_query(text(query_sql), con=monitor_engine.connect())
+
+    if df.empty is True:
+        return
+    else:  # UID存在
+        by_hash_dict = dict(tuple(df.groupby('f_hash')))
+        for key in by_hash_dict:
+            print(key, ":", by_hash_dict[key])
+        return by_hash_dict
 def hexStr_to_str(hex_str):
     hex = hex_str.decode('utf-8')
     str_bin = binascii.unhexlify(hex)
     return str_bin.decode('utf-8')
 
-def parseTxAndStoreTrc(block_num, delay=0):
+def parseTxAndStoreTrc(block_num, delay, monitor_dict,monitor_hash_dict):
     time.sleep(delay)
     tron_api = Tronapi()
     try:
@@ -435,7 +430,7 @@ def parseTxAndStoreTrc(block_num, delay=0):
     except Exception as e:
         print(e)
         print("可能接口请求过于频繁,因此重新请求")
-        return parseTxAndStoreTrc(block_num, 5)
+        return parseTxAndStoreTrc(block_num, 5,monitor_dict,monitor_hash_dict)
     try:
         transaction_at = (transactionsData['block_header']['raw_data']['timestamp']) / 1000
         transaction_at = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(transaction_at))
@@ -571,8 +566,8 @@ def parseTxAndStoreTrc(block_num, delay=0):
                 contract_obj.t_name = "trx"
             else:  # resource = "energy"
                 continue
-        KafkaMatchTxLogic(tx,transaction,block_num)  # 状态hash匹配
-        KafkaTxLogic(tx, contract_obj,block_num)  # 充值交易
+        KafkaMatchTxLogic(tx,transaction,block_num,monitor_hash_dict)  # 状态hash匹配
+        KafkaTxLogic(tx, contract_obj,block_num,monitor_dict)  # 充值交易
 
     # 更新task当前高度
     new_height = block_num + 1
@@ -591,6 +586,8 @@ Init()
 tronapi = Tronapi()
 
 while True:
+    monitor_dict=GetMonitor()
+    monitor_hash_dict = GetMonitorHash()
     try:
         GetNowBlock = tronapi.getConfirmedCurrentBlock()
     except Exception as e:
@@ -614,7 +611,7 @@ while True:
     if start_height[0] + delay + 1 <= now_block_num:
         cur_time = str(datetime.datetime.now())  # 获取当前时间
         print("开始处理TRC20交易，当前处理的高度为： " + str(start_height[0]) + "当前时间：" + cur_time)
-        parseLogStoreTrc20(int(start_height[0]), 0)
+        parseLogStoreTrc20(int(start_height[0]), 0,monitor_dict)
 
     # 这里应该从db中读取TRC任务高度
     sql = r'select * from f_task where name="TRC"'
@@ -633,7 +630,6 @@ while True:
     if start_height[0] + delay + 1 <= now_block_num:
         cur_time = str(datetime.datetime.now())  # 获取当前时间
         print("开始处理TRC交易，当前处理的高度为： " + str(start_height[0]) + "当前时间：" + cur_time)
-
-        parseTxAndStoreTrc(int(start_height[0]), 0)
+        parseTxAndStoreTrc(int(start_height[0]), 0,monitor_dict,monitor_hash_dict)
 
     pass

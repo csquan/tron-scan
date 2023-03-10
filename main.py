@@ -631,6 +631,6 @@ while True:
     if start_height[0] + delay + 1 <= now_block_num:
         cur_time = str(datetime.datetime.now())  # 获取当前时间
         print("开始处理TRC交易，当前处理的高度为： " + str(start_height[0]) + "当前时间：" + cur_time)
-        #parseTxAndStoreTrc(int(start_height[0]), 0,monitor_dict,monitor_hash_dict)
+        parseTxAndStoreTrc(int(start_height[0]), 0,monitor_dict,monitor_hash_dict)
 
     pass

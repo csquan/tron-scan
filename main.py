@@ -218,13 +218,13 @@ def KafkaMatchTxLogic(tx,transaction,block_num,monitor_hash_dict):
     if tx.t_hash not in monitor_hash_dict:
         return
     else:
-        print("在状态hash表中匹配到" + tx.hash)
-        txpush["hash"] = tx.hash
+        print("在状态hash表中匹配到" + tx.t_hash)
+        txpush["hash"] = tx.t_hash
         txpush["chain"] = "trx"
         txpush["tx_height"] = block_num
         txpush["cur_chain_height"] = block_num + 18
         txpush["orderID"] = time.time()
-        txpush["contract_addr"] = tx.contract_addr
+        txpush["contract_addr"] = tx.t_contract_addr
 
         if transaction["ret"][0]["contractRet"] != "SUCCESS":
             txpush["success"] = 0
@@ -314,7 +314,8 @@ def ParseLog(log_data, blocksnum, transaction_at,monitor_dict):
                 print("未在缓存和db中找到，开始取线上取")
                 res = tron_api.getContractInfo("name()", contract_in_hex)
                 if res['result']['result'] is True:
-                    print(res['constant_result'][0])
+                    if len(res['constant_result'][0]) ==0:
+                        continue
                     print("name")
                     print(res['constant_result'][0][64:128].lstrip('0'))
                     length_str=res['constant_result'][0][64:128].lstrip('0')
@@ -334,7 +335,7 @@ def ParseLog(log_data, blocksnum, transaction_at,monitor_dict):
                     length=int(str(length_str),16)
                     print(length)
                     print("symbol:" + res['constant_result'][0][128:128+length*2])
-                    symbol = bytes.fromhex(res['constant_result'][0][128:192]).decode()
+                    symbol = bytes.fromhex(res['constant_result'][0][128:128+length*2]).decode()
                     print("symbol:" + symbol)
                 res = tron_api.getContractInfo("decimals()", contract_in_hex)
                 if res['result']['result'] is True:
@@ -342,7 +343,7 @@ def ParseLog(log_data, blocksnum, transaction_at,monitor_dict):
                     print("decimal:" + decimals)
                 res = tron_api.getContractInfo("totalSupply()", contract_in_hex)
                 if res['result']['result'] is True:
-                    totalSupply = int(res['constant_result'][0].lstrip('0'), 16)
+                    totalSupply = int(res['constant_result'][0], 16)
                     print("totalSupply:" + str(totalSupply))
 
                 contract_obj = Contract(
@@ -402,8 +403,8 @@ def GetMonitor():
         return
     else:  # UID存在
         by_addr_dict = dict(tuple(df.groupby('f_addr')))
-        for key in by_addr_dict:
-            print(key, ":", by_addr_dict[key])
+        #for key in by_addr_dict:
+        #    print(key, ":", by_addr_dict[key])
         return by_addr_dict
 
 def GetMonitorHash():
@@ -414,8 +415,8 @@ def GetMonitorHash():
         return
     else:  # UID存在
         by_hash_dict = dict(tuple(df.groupby('f_hash')))
-        for key in by_hash_dict:
-            print(key, ":", by_hash_dict[key])
+        # for key in by_hash_dict:
+        #    print(key, ":", by_hash_dict[key])
         return by_hash_dict
 def hexStr_to_str(hex_str):
     hex = hex_str.decode('utf-8')
@@ -630,6 +631,6 @@ while True:
     if start_height[0] + delay + 1 <= now_block_num:
         cur_time = str(datetime.datetime.now())  # 获取当前时间
         print("开始处理TRC交易，当前处理的高度为： " + str(start_height[0]) + "当前时间：" + cur_time)
-        parseTxAndStoreTrc(int(start_height[0]), 0,monitor_dict,monitor_hash_dict)
+        #parseTxAndStoreTrc(int(start_height[0]), 0,monitor_dict,monitor_hash_dict)
 
     pass

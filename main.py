@@ -223,22 +223,22 @@ def KafkaMatchTxLogic(tx,transaction,block_num,monitor_hash_dict):
         txpush["chain"] = "trx"
         txpush["tx_height"] = block_num
         txpush["cur_chain_height"] = block_num + 18
-        txpush["orderID"] = time.time()
+        txpush["order_id"] = time.time()
         txpush["contract_addr"] = tx.t_contract_addr
 
         if transaction["ret"][0]["contractRet"] != "SUCCESS":
-            txpush["success"] = 0
+            txpush["success"] = False
         else:
-            txpush["success"] = 1
-
-        aa_str = json.dumps(a,default=lambda o: o.__dict__,sort_keys=True, indent=4)
+            txpush["success"] = True
+        print(txpush)
+        aa_str = json.dumps(txpush,default=lambda o: o.__dict__,sort_keys=True, indent=4)
 
         bootstrap_servers = [kafka_server]
 
         producer = KafkaProducer(bootstrap_servers=bootstrap_servers)
 
         bb = bytes(aa_str, 'utf-8')
-
+        print(bb)
         producer.send(
             topic=matched_topic,
             value=bb).add_callback(on_send_success).add_errback(on_send_error)
@@ -594,6 +594,8 @@ while True:
     except Exception as e:
         # 过于频繁的请求波场接口可能会强制限制一段时间,此时sleep一下
         time.sleep(5)
+        continue
+    if GetNowBlock is None:
         continue
     # 这里应该从db中读取TRC20的任务高度
     sql = r'select * from f_task where name="TRC20"'

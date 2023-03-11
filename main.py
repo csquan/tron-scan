@@ -227,7 +227,7 @@ def KafkaMatchTxLogic(tx,transaction,block_num,monitor_hash_dict):
         txpush["chain"] = "trx"
         txpush["tx_height"] = block_num
         txpush["cur_chain_height"] = block_num + 18
-        txpush["order_id"] = time.time()
+        txpush["order_id"] = str(int(time.time()))
         txpush["contract_addr"] = tx.t_contract_addr
 
         if transaction["ret"][0]["contractRet"] != "SUCCESS":

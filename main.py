@@ -163,6 +163,8 @@ def on_send_error(excp=None):
 # 4 组装消息发送
 def KafkaTxLogic(tx,contract_obj, block_num, monitor_dict):
     txKafka = {}
+    if monitor_dict is None:
+        return
     if tx.t_toAddr not in monitor_dict:
         return
     else:  # UID存在
@@ -215,6 +217,8 @@ def KafkaTxLogic(tx,contract_obj, block_num, monitor_dict):
 # 4 组装消息发送
 def KafkaMatchTxLogic(tx,transaction,block_num,monitor_hash_dict):
     txpush = {}
+    if monitor_hash_dict is None:
+        return
     if tx.t_hash not in monitor_hash_dict:
         return
     else:
@@ -589,6 +593,7 @@ tronapi = Tronapi()
 while True:
     monitor_dict=GetMonitor()
     monitor_hash_dict = GetMonitorHash()
+
     try:
         GetNowBlock = tronapi.getConfirmedCurrentBlock()
     except Exception as e:

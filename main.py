@@ -215,7 +215,7 @@ def KafkaTxLogic(tx,contract_obj, block_num, monitor_dict):
 # 2 从状态hash表中取出当前的交易hash，如果没找到，则进入下一阶段
 # 3 db中取出token的精度（addtoken添加进db）
 # 4 组装消息发送
-def KafkaMatchTxLogic(tx,transaction,block_num,monitor_hash_dict):
+def KafkaMatchTxLogic(tx,transaction,block_num,monitor_hash_dict,logData):
     txpush = {}
     if monitor_hash_dict is None:
         return
@@ -234,7 +234,11 @@ def KafkaMatchTxLogic(tx,transaction,block_num,monitor_hash_dict):
             txpush["success"] = False
         else:
             txpush["success"] = True
+
+        txpush["gas_used"] = ParseLog(logData, tx.t_hash)
+
         print(txpush)
+
         aa_str = json.dumps(txpush,default=lambda o: o.__dict__,sort_keys=True, indent=4)
 
         bootstrap_servers = [kafka_server]
@@ -243,160 +247,23 @@ def KafkaMatchTxLogic(tx,transaction,block_num,monitor_hash_dict):
 
         bb = bytes(aa_str, 'utf-8')
         print(bb)
-        producer.send(
+        ret = producer.send(
             topic=matched_topic,
             value=bb).add_callback(on_send_success).add_errback(on_send_error)
+        print("match kafka 执行结果")
+        print(ret)
 
 
-
-def ParseLog(log_data, blocksnum, transaction_at,monitor_dict):
-    list = []
-    contract_hex_list = []
-    contract_list = []
-    tron_api = Tronapi()
-
+def ParseLog(log_data, hash):
     for obj in enumerate(log_data):
-        idx = obj[0]
         logs = obj[1]
-        if "result" not in logs["receipt"]:
-            continue
-        if logs["receipt"]["result"] != "SUCCESS":
-            continue
-        if "log" not in logs:
-            continue
-        for log in logs["log"]:
-            if "topics" not in log:
-                continue
-            if len(log["topics"]) != 3:
-                continue
-            if len(log["topics"][0]) != 64 or len(log["topics"][1]) != 64 or len(log["topics"][2]) != 64:
-                continue
-            contractaddr = log["address"]
-            contract_in_hex = "41" + contractaddr
-            contractaddr = keys.to_base58check_address(contractaddr)
-            if log["topics"][0][0:2] != "0x":
-                log["topics"][0] = "0x" + log["topics"][0]
-            if log["topics"][0] != TransferTopic:
-                continue
-            fromaddr = log["topics"][1]
-            toaddr = log["topics"][2]
-            fromaddr = "41" + fromaddr[24:]
-            toaddr = "41" + toaddr[24:]
-            fromaddr = base58.b58encode_check(bytes.fromhex(fromaddr))
-            toaddr = base58.b58encode_check(bytes.fromhex(toaddr))
+        if hash == logs["id"]:
+            if "fee" in logs:
+               return logs["fee"]
 
-            fromaddr = fromaddr.decode()
-            toaddr = toaddr.decode()
-            val = decode_hex(log["data"][24:])
-            amount = int.from_bytes(val[0], byteorder='big')
-
-            t20tx = TRC20Transaction(
-                t_hash=logs["id"],
-                t_block=blocksnum,
-                t_fromAddr=fromaddr,
-                t_toAddr=toaddr,
-                t_block_at=transaction_at,
-                t_amount=str(amount),
-                t_contract_addr=contractaddr,
-                t_status=1,   # todo: 该字段取实际执行
-            )
-            list.append(t20tx)
+    return 0
 
 
-            should_call_api = True
-            # 1.先在当前的contract_list中查找 2.然后在db中查找 3.如果都找不到，再去远程接口取
-            if contract_in_hex in contract_hex_list:
-                index = contract_hex_list.index(contract_in_hex)
-                contract_obj = contract_list[index]
-                should_call_api = False
-            else:
-                # 这里应该从db中读取TRC合约信息
-                contract_obj = session.query(Contract).filter(Contract.t_contract_addr == contractaddr).first()
-                if contract_obj is not None:
-                    should_call_api = False
-            if should_call_api is True:
-                print("未在缓存和db中找到，开始取线上取")
-                res = tron_api.getContractInfo("name()", contract_in_hex)
-                if res['result']['result'] is True:
-                    if len(res['constant_result'][0]) ==0:
-                        continue
-                    print("name")
-                    print(res['constant_result'][0][64:128].lstrip('0'))
-                    length_str=res['constant_result'][0][64:128].lstrip('0')
-                    print(length_str)
-                    length=int(str(length_str),16)
-                    print(length)
-                    print("name:" + res['constant_result'][0][128:128+length*2])
-                    name = bytes.fromhex(res['constant_result'][0][128:128+length*2]).decode()
-                    print("name:" + name)
-                res = tron_api.getContractInfo("symbol()", contract_in_hex)
-                if res['result']['result'] is True:
-                    print(res['constant_result'][0])
-                    print("symbol")
-                    print(res['constant_result'][0][64:128].lstrip('0'))
-                    length_str=res['constant_result'][0][64:128].lstrip('0')
-                    print(length_str)
-                    length=int(str(length_str),16)
-                    print(length)
-                    print("symbol:" + res['constant_result'][0][128:128+length*2])
-                    symbol = bytes.fromhex(res['constant_result'][0][128:128+length*2]).decode()
-                    print("symbol:" + symbol)
-                res = tron_api.getContractInfo("decimals()", contract_in_hex)
-                if res['result']['result'] is True:
-                    decimals = res['constant_result'][0].lstrip('0')
-                    print("decimal:" + decimals)
-                res = tron_api.getContractInfo("totalSupply()", contract_in_hex)
-                if res['result']['result'] is True:
-                    totalSupply = int(res['constant_result'][0], 16)
-                    print("totalSupply:" + str(totalSupply))
-
-                contract_obj = Contract(
-                    t_contract_addr=contractaddr,
-                    t_name=name,
-                    t_symbol=symbol,
-                    t_decimal=decimals,
-                    t_total_supply=str(totalSupply)
-                )
-
-            KafkaTxLogic(t20tx, contract_obj,blocksnum,monitor_dict)  # 充值交易
-
-            contract_hex_list.append(contract_in_hex)
-            contract_list.append(contract_obj)
-    return list, contract_list
-
-
-def parseLogStoreTrc20(block_num, delay,monitor_dict):
-    time.sleep(delay)
-    tron_api = Tronapi()
-    try:
-        transactionsData = tron_api.getWalletsolidityBlockByNum(block_num)
-    except Exception as e:
-        print("可能接口请求过于频繁,因此休眠5秒后重新请求")
-        return parseLogStoreTrc20(block_num, 5,monitor_dict)
-    try:
-        transaction_at = (transactionsData['block_header']['raw_data']['timestamp']) / 1000
-        transaction_at = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(transaction_at))
-    except Exception as e:
-        print(e)
-        return
-    if transactionsData.get("transactions") is None:
-        return
-    # 取log数据并存储db
-    logData = tron_api.getTxInfoByNum(block_num)
-    try:
-        # 解析log为TRC20交易
-        log_list, contract_list = ParseLog(logData, block_num, transaction_at,monitor_dict)
-        # 更新task当前高度
-        new_height = block_num + 1
-        update_sql = 'update f_task set num = "' + str(new_height) + '" where name = "TRC20"'
-        session.execute(text(update_sql))
-        session.add_all(log_list)
-        session.add_all(contract_list)
-        # 这里保证事物一次提交
-        session.commit()
-    except Exception as e:
-        print(e)
-        return
 
 
 def GetMonitor():
@@ -429,6 +296,8 @@ def hexStr_to_str(hex_str):
 
 def parseTxAndStoreTrc(block_num, delay, monitor_dict,monitor_hash_dict):
     time.sleep(delay)
+    count20 =0
+    count=0
     tron_api = Tronapi()
     try:
         transactionsData = tron_api.getWalletsolidityBlockByNum(block_num)
@@ -448,10 +317,13 @@ def parseTxAndStoreTrc(block_num, delay, monitor_dict,monitor_hash_dict):
     ContactArray = GetContactArray()
     # 这里是TRC和TRC10交易，以48896576为例，158笔 和浏览器对应
     tx_list = []
+    tx20_list = []
     contract_list = []
     contract_hex_list = []  # 为了查找方便，设置一个额外的数据结构
+    logData = tron_api.getTxInfoByNum(block_num)
     for transaction in transactionsData['transactions']:
         if 'contract_address' in transaction['raw_data']['contract'][0]['parameter']['value']: # 合约交易
+            count20 = count20 + 1
             try:
                 contract_in_hex = transaction['raw_data']['contract'][0]['parameter']['value']['contract_address']
                 contract = keys.to_base58check_address(contract_in_hex)
@@ -483,7 +355,7 @@ def parseTxAndStoreTrc(block_num, delay, monitor_dict,monitor_hash_dict):
             to_address = keys.to_base58check_address(
                 transaction['raw_data']["contract"][0]["parameter"]["value"]["data"][9:72].lstrip("0"))
             # write to mysql
-            tx = Transaction(
+            tx20 = TRC20Transaction(
                 t_hash=transaction['txID'],
                 t_block=block_num,
                 t_fromAddr=from_address,
@@ -491,9 +363,8 @@ def parseTxAndStoreTrc(block_num, delay, monitor_dict,monitor_hash_dict):
                 t_block_at=transaction_at,
                 t_amount=transactionAmount,
                 t_contract_addr=contract,
-                t_is_contract="True"
             )
-            tx_list.append(tx)
+            tx20_list.append(tx20)
 
             should_call_api=True
             # 1.先在当前的contract_list中查找 2.然后在db中查找 3.如果都找不到，再去远程接口取
@@ -545,8 +416,12 @@ def parseTxAndStoreTrc(block_num, delay, monitor_dict,monitor_hash_dict):
 
             contract_hex_list.append(contract_in_hex)
             contract_list.append(contract_obj)
+
+            KafkaMatchTxLogic(tx20, transaction, block_num, monitor_hash_dict, logData)  # 状态hash匹配
+            KafkaTxLogic(tx20, contract_obj, block_num, monitor_dict)  # 充值交易
         else:  # 非合约交易
             tx_detail = transaction['raw_data']['contract'][0]['parameter']['value']
+            count = count + 1
             if "amount" in tx_detail:
                 transactionAmount = tx_detail['amount']
 
@@ -569,16 +444,18 @@ def parseTxAndStoreTrc(block_num, delay, monitor_dict,monitor_hash_dict):
                 contract_obj.t_decimal = 6
                 contract_obj.t_symbol = "trx"
                 contract_obj.t_name = "trx"
+
+                KafkaMatchTxLogic(tx, transaction, block_num, monitor_hash_dict, logData)  # 状态hash匹配
+                KafkaTxLogic(tx, contract_obj, block_num, monitor_dict)  # 充值交易
             else:  # resource = "energy"
                 continue
-        KafkaMatchTxLogic(tx,transaction,block_num,monitor_hash_dict)  # 状态hash匹配
-        KafkaTxLogic(tx, contract_obj,block_num,monitor_dict)  # 充值交易
 
     # 更新task当前高度
     new_height = block_num + 1
     update_sql = 'update f_task set num = "' + str(new_height) + '" where name = "TRC"'
     session.execute(text(update_sql))
     session.add_all(tx_list)
+    session.add_all(tx20_list)
     # 这里可能有部分合约已经存入导致重复错误
     session.add_all(contract_list)
     session.commit()
@@ -610,17 +487,6 @@ while True:
     handle_block_count = 0
     delay = 19 # trx的不可逆高度 - 目前从rpc获取来的区块比最新高度低19个区块，足够不可逆了
 
-    start_height = 0
-    if df.empty is True:
-        start_height = 0
-    else:
-        start_height = df.num
-    # 当数据库的高度比当前高度小(delay+1)
-    if start_height[0] + delay + 1 <= now_block_num:
-        cur_time = str(datetime.datetime.now())  # 获取当前时间
-        print("开始处理TRC20交易，当前处理的高度为： " + str(start_height[0]) + "当前时间：" + cur_time)
-        parseLogStoreTrc20(int(start_height[0]), 0,monitor_dict)
-
     # 这里应该从db中读取TRC任务高度
     sql = r'select * from f_task where name="TRC"'
     # 读取SQL数据库
@@ -637,7 +503,7 @@ while True:
     # 当数据库的高度比当前高度小(delay+1)
     if start_height[0] + delay + 1 <= now_block_num:
         cur_time = str(datetime.datetime.now())  # 获取当前时间
-        print("开始处理TRC交易，当前处理的高度为： " + str(start_height[0]) + "当前时间：" + cur_time)
+        print("开始处理TRX交易，当前处理的高度为： " + str(start_height[0]) + "当前时间：" + cur_time)
         parseTxAndStoreTrc(int(start_height[0]), 0,monitor_dict,monitor_hash_dict)
 
     pass

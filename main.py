@@ -225,7 +225,7 @@ def KafkaMatchTxLogic(tx,transaction,block_num,monitor_hash_dict,logData):
         txpush["hash"] = tx.t_hash
         txpush["chain"] = "trx"
         txpush["tx_height"] = block_num
-        txpush["cur_chain_height"] = block_num + 18
+        txpush["cur_chain_height"] = block_num + 19
         txpush["order_id"] = str(int(time.time()))
         txpush["contract_addr"] = tx.t_contract_addr
 

@@ -174,9 +174,11 @@ def KafkaTxLogic(tx,contract_obj, block_num, monitor_dict):
             txKafka["uid"] = value
 
         if tx.t_contract_addr == "":
+            txKafka["amount"] = str(tx.t_amount)
             txKafka["token_type"] = 4  #trx 本币
         else:
             txKafka["token_type"] = 5  #trx代币
+            txKafka["amount"] = str(tx.t_amount * (10 ** int(contract_obj.t_decimal)))
 
         query_sql = 'select * from t_monitor_hash where f_hash = "' + tx.t_hash + '"'
         df_hash = pd.read_sql_query(text(query_sql), con=monitor_engine.connect())
@@ -184,7 +186,6 @@ def KafkaTxLogic(tx,contract_obj, block_num, monitor_dict):
         if df_hash.empty is True:  # 在状态hash中没找到
             txKafka["from"] = tx.t_fromAddr
             txKafka["to"] = tx.t_toAddr
-            txKafka["amount"] = str(tx.t_amount)
             txKafka["tx_hash"] = tx.t_hash
             txKafka["chain"] = "trx"
             txKafka["contract_addr"] = tx.t_contract_addr

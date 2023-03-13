@@ -188,7 +188,7 @@ def KafkaTxLogic(tx,contract_obj, block_num, monitor_dict):
             txKafka["tx_hash"] = tx.t_hash
             txKafka["chain"] = "trx"
             txKafka["contract_addr"] = tx.t_contract_addr
-            txKafka["decimals"] = contract_obj.t_decimal
+            txKafka["decimals"] = int(contract_obj.t_decimal)
             txKafka["asset_symbol"] = contract_obj.t_symbol
             txKafka["tx_height"] = block_num
             txKafka["cur_chain_height"] = block_num + 19
@@ -447,7 +447,7 @@ def parseTxAndStoreTrc(block_num, delay, monitor_dict,monitor_hash_dict):
                     )
                     tx_list.append(tx)
                     contract_obj = Contract()  # 本币
-                    contract_obj.t_decimal = 6
+                    contract_obj.t_decimal = "6"
                     contract_obj.t_symbol = "trx"
                     contract_obj.t_name = "trx"
 

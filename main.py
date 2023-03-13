@@ -226,7 +226,15 @@ def KafkaMatchTxLogic(tx,transaction,block_num,monitor_hash_dict,logData):
         txpush["chain"] = "trx"
         txpush["tx_height"] = block_num
         txpush["cur_chain_height"] = block_num + 19
-        txpush["order_id"] = str(int(time.time()))
+
+        query_sql = 'select f_order_id from t_monitor_hash where f_hash = "' + tx.t_hash +'"'
+        df = pd.read_sql_query(text(query_sql), con=monitor_engine.connect())
+
+        if df.empty is True:
+           print("在db中没有找到记录")
+        else:
+           txpush["order_id"] = df.f_order_id[0]
+
         txpush["contract_addr"] = tx.t_contract_addr
 
         if transaction["ret"][0]["contractRet"] != "SUCCESS":

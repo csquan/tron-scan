@@ -193,7 +193,7 @@ def KafkaTxLogic(tx,contract_obj, block_num, monitor_dict):
             txKafka["asset_symbol"] = contract_obj.t_symbol
             txKafka["tx_height"] = block_num
             txKafka["cur_chain_height"] = block_num + 19
-            txKafka["log_index"] = 0
+            txKafka["log_index"] = tx.tx_index
 
             aa_str = json.dumps(txKafka,default=lambda o: o.__dict__,sort_keys=True, indent=4)
 
@@ -300,7 +300,7 @@ def hexStr_to_str(hex_str):
 
 def parseTxAndStoreTrc(block_num, delay, monitor_dict,monitor_hash_dict):
     time.sleep(delay)
-    count20 =0
+    index = -1
     count=0
     tron_api = Tronapi()
     try:
@@ -324,147 +324,153 @@ def parseTxAndStoreTrc(block_num, delay, monitor_dict,monitor_hash_dict):
         contract_hex_list = []  # 为了查找方便，设置一个额外的数据结构
         logData = tron_api.getTxInfoByNum(block_num)
         for transaction in transactionsData['transactions']:
-            if 'contract_address' in transaction['raw_data']['contract'][0]['parameter']['value']: # 合约交易
-                count20 = count20 + 1
-                try:
-                    contract_in_hex = transaction['raw_data']['contract'][0]['parameter']['value']['contract_address']
-                    contract = keys.to_base58check_address(contract_in_hex)
-                    active_contract = []
-                    for temp in ContactArray:
-                        if temp[0] == contract:
-                            active_contract = temp
-                    if len(active_contract) == 0:
+            #一笔交易里可能存在多笔转账
+            contracts = transaction['raw_data']['contract']
+            index = -1
+            for contract in contracts:
+                index += 1
+                tx_type = contract['type']
+                # TransferContract： 本币交易 TransferAssetContract： TRC10交易  TriggerSmartContract：合约交易
+                if tx_type == "TransferContract":
+                    tx_detail = contract['parameter']['value']
+                    if "amount" in tx_detail:
+                        transactionAmount = tx_detail['amount']
+                        toAddr = keys.to_base58check_address(tx_detail["to_address"])
+                        fromAddr = keys.to_base58check_address(tx_detail["owner_address"])
+                        # write to mysql
+                        tx = Transaction(
+                            t_hash=transaction['txID'],
+                            t_block=block_num,
+                            t_fromAddr=fromAddr,
+                            t_toAddr=toAddr,
+                            t_block_at=transaction_at,
+                            t_amount=transactionAmount,
+                            t_contract_addr="",
+                            t_is_contract="False",
+                            t_index=index
+                        )
+
+                        tx_list.append(tx)
+                        contract_obj = Contract()  # 本币
+                        contract_obj.t_decimal = "6"
+                        contract_obj.t_symbol = "trx"
+                        contract_obj.t_name = "trx"
+
+                        KafkaMatchTxLogic(tx, transaction, block_num, monitor_hash_dict, logData)  # 状态hash匹配
+                        KafkaTxLogic(tx, contract_obj, block_num, monitor_dict)  # 充值交易
+                    else:  # resource = "energy"
                         continue
-                except Exception as e:
-                    print('错误:', e)
-                    continue
-                if "data" not in transaction['raw_data']["contract"][0]["parameter"]["value"]:
-                    continue
-                func = transaction['raw_data']["contract"][0]["parameter"]["value"]["data"][0:8]
-                if func != "a9059cbb":
-                    continue
-                try:
-                    transactionAmount = int(
-                        transaction['raw_data']["contract"][0]["parameter"]["value"]["data"][72:].lstrip("0"), 16) / (
+                else if tx_type == "TriggerSmartContract":
+                    if 'contract_address' in contract['parameter']['value']: # 合约交易
+                        try:
+                            contract_in_hex = contract['parameter']['value']['contract_address']
+                            contract = keys.to_base58check_address(contract_in_hex)
+                            active_contract = []
+                            for temp in ContactArray:
+                                if temp[0] == contract:
+                                    active_contract = temp
+                                if len(active_contract) == 0:
+                                    continue
+                        except Exception as e:
+                            print('错误0:', e)
+                            continue
+                        if "data" not in contract["parameter"]["value"]:
+                            continue
+                        func = contract["parameter"]["value"]["data"][0:8]
+                        if func != "a9059cbb":
+                            continue
+                        try:
+                            transactionAmount = int(
+                                contract["parameter"]["value"]["data"][72:].lstrip("0"), 16) / (
                                                 1 * math.pow(10, int(active_contract[2])))
-                except:
-                    continue
-                from_address = keys.to_base58check_address(
-                    transaction['raw_data']['contract'][0]['parameter']['value']['owner_address'])
-                to_str = transaction['raw_data']["contract"][0]["parameter"]["value"]["data"][9:72].lstrip("0")
-                if len(to_str) == 0:
-                    continue
-                to_address = keys.to_base58check_address(
-                    transaction['raw_data']["contract"][0]["parameter"]["value"]["data"][9:72].lstrip("0"))
-                # write to mysql
-                tx20 = TRC20Transaction(
-                    t_hash=transaction['txID'],
-                    t_block=block_num,
-                    t_fromAddr=from_address,
-                    t_toAddr=to_address,
-                    t_block_at=transaction_at,
-                    t_amount=transactionAmount,
-                    t_contract_addr=contract,
-                    t_status="success",
-                )
-                tx20_list.append(tx20)
+                        except Exception as e1:
+                            print('错误1:', e)
+                            continue
+                        from_address = keys.to_base58check_address(
+                            contract['parameter']['value']['owner_address'])
+                        to_str = contract["parameter"]["value"]["data"][9:72].lstrip("0")
+                        if len(to_str) == 0:
+                            continue
+                        to_address = keys.to_base58check_address(
+                            contract["parameter"]["value"]["data"][9:72].lstrip("0"))
+                        # write to mysql
+                        tx20 = TRC20Transaction(
+                            t_hash=transaction['txID'],
+                            t_block=block_num,
+                            t_fromAddr=from_address,
+                            t_toAddr=to_address,
+                            t_block_at=transaction_at,
+                            t_amount=transactionAmount,
+                            t_contract_addr=contract,
+                            t_status="success",
+                            t_index=index
+                        )
+                        tx20_list.append(tx20)
 
-                should_call_api=True
-                # 1.先在当前的contract_list中查找 2.然后在db中查找 3.如果都找不到，再去远程接口取
-                if contract_in_hex in contract_hex_list:
-                    index = contract_hex_list.index(contract_in_hex)
-                    contract_obj = contract_list[index]
-                    should_call_api = False
-                else:
-                    # 这里应该从db中读取TRC合约信息
-                    contract_obj = session.query(Contract).filter(Contract.t_contract_addr == contract).first()
-                    if contract_obj is not None:
-                        should_call_api = False
+                        should_call_api=True
+                        # 1.先在当前的contract_list中查找 2.然后在db中查找 3.如果都找不到，再去远程接口取
+                        if contract_in_hex in contract_hex_list:
+                            index = contract_hex_list.index(contract_in_hex)
+                            contract_obj = contract_list[index]
+                            should_call_api = False
+                        else:
+                            # 这里应该从db中读取TRC合约信息
+                            contract_obj = session.query(Contract).filter(Contract.t_contract_addr == contract).first()
+                            if contract_obj is not None:
+                                should_call_api = False
 
-                if should_call_api is True:
-                    print("未在缓存和db中找到，开始取线上取")
-                    res = tron_api.getContractInfo("name()", contract_in_hex)
-                    if res['result']['result'] is True:
-                        print(res['constant_result'][0])
-                        print("len")
-                        print(res['constant_result'][0][64:128].lstrip('0'))
-                        length_str = res['constant_result'][0][64:128].lstrip('0')
-                        print(length_str)
-                        length = int(str(length_str), 16)
-                        print(length)
-                        print("name")
-                        print(res['constant_result'][0][128:128 + length * 2])
-                        name = bytes.fromhex(res['constant_result'][0][128:128 + length * 2]).decode()
-                        print("name" + name)
-                    res = tron_api.getContractInfo("symbol()", contract_in_hex)
-                    if res['result']['result'] is True:
-                        symbol = bytes.fromhex(res['constant_result'][0][128:192].rstrip('0')).decode()
-                        print("symbol:" + symbol)
-                    res = tron_api.getContractInfo("decimals()", contract_in_hex)
-                    if res['result']['result'] is True:
-                        decimals = res['constant_result'][0].lstrip('0')
-                        print("decimal:" + decimals)
-                    res = tron_api.getContractInfo("totalSupply()", contract_in_hex)
-                    if res['result']['result'] is True:
-                        totalSupply = int(res['constant_result'][0].lstrip('0'), 16)
-                        print("totalSupply:" + str(totalSupply))
+                            if should_call_api is True:
+                                print("未在缓存和db中找到，开始取线上取")
+                                res = tron_api.getContractInfo("name()", contract_in_hex)
+                                if res['result']['result'] is True:
+                                    print(res['constant_result'][0])
+                                    print("len")
+                                    print(res['constant_result'][0][64:128].lstrip('0'))
+                                    length_str = res['constant_result'][0][64:128].lstrip('0')
+                                    print(length_str)
+                                    length = int(str(length_str), 16)
+                                    print(length)
+                                    print("name")
+                                    print(res['constant_result'][0][128:128 + length * 2])
+                                    name = bytes.fromhex(res['constant_result'][0][128:128 + length * 2]).decode()
+                                    print("name" + name)
+                                res = tron_api.getContractInfo("symbol()", contract_in_hex)
+                                if res['result']['result'] is True:
+                                    symbol = bytes.fromhex(res['constant_result'][0][128:192].rstrip('0')).decode()
+                                    print("symbol:" + symbol)
+                                res = tron_api.getContractInfo("decimals()", contract_in_hex)
+                                if res['result']['result'] is True:
+                                    decimals = res['constant_result'][0].lstrip('0')
+                                    print("decimal:" + decimals)
+                                res = tron_api.getContractInfo("totalSupply()", contract_in_hex)
+                                if res['result']['result'] is True:
+                                    totalSupply = int(res['constant_result'][0].lstrip('0'), 16)
+                                    print("totalSupply:" + str(totalSupply))
 
-                    contract_obj = Contract(
-                        t_contract_addr=contract,
-                        t_name=name,
-                        t_symbol=symbol,
-                        t_decimal=decimals,
-                        t_total_supply=str(totalSupply)
-                    )
+                                contract_obj = Contract(
+                                    t_contract_addr=contract,
+                                    t_name=name,
+                                    t_symbol=symbol,
+                                    t_decimal=decimals,
+                                    t_total_supply=str(totalSupply)
+                                )
 
-                contract_hex_list.append(contract_in_hex)
-                contract_list.append(contract_obj)
+                            contract_hex_list.append(contract_in_hex)
+                            contract_list.append(contract_obj)
 
-                KafkaMatchTxLogic(tx20, transaction, block_num, monitor_hash_dict, logData)  # 状态hash匹配
-                KafkaTxLogic(tx20, contract_obj, block_num, monitor_dict)  # 充值交易
-            else:  # 非TRC20交易(包含TRC交易和10交易，应该区分)
-                tx_detail = transaction['raw_data']['contract'][0]['parameter']['value']
-                count = count + 1
-                if "amount" in tx_detail:
-                    transactionAmount = tx_detail['amount']
+                            KafkaMatchTxLogic(tx20, transaction, block_num, monitor_hash_dict, logData)  # 状态hash匹配
+                            KafkaTxLogic(tx20, contract_obj, block_num, monitor_dict)  # 充值交易
+                else:  # 其它交易 忽略
 
-                    toAddr = keys.to_base58check_address(tx_detail["to_address"])
-                    fromAddr = keys.to_base58check_address(tx_detail["owner_address"])
+            session.add_all(tx_list)
+            session.add_all(tx20_list)
+            session.add_all(contract_list)
 
-                    # write to mysql
-                    tx = Transaction(
-                        t_hash=transaction['txID'],
-                        t_block=block_num,
-                        t_fromAddr=fromAddr,
-                        t_toAddr=toAddr,
-                        t_block_at=transaction_at,
-                        t_amount=transactionAmount,
-                        t_contract_addr="",
-                        t_is_contract="False"
-                    )
-                    if "asset_name" in tx_detail:
-                        print("检测到TRC10交易，舍弃")
-                        continue
-
-                    tx_list.append(tx)
-                    contract_obj = Contract()  # 本币
-                    contract_obj.t_decimal = "6"
-                    contract_obj.t_symbol = "trx"
-                    contract_obj.t_name = "trx"
-
-                    KafkaMatchTxLogic(tx, transaction, block_num, monitor_hash_dict, logData)  # 状态hash匹配
-                    KafkaTxLogic(tx, contract_obj, block_num, monitor_dict)  # 充值交易
-                else:  # resource = "energy"
-                    continue
-        session.add_all(tx_list)
-        session.add_all(tx20_list)
-        session.add_all(contract_list)
-
-    # 更新task当前高度
-    new_height = block_num + 1
-    update_sql = 'update f_task set num = "' + str(new_height) + '" where name = "TRC"'
-    session.execute(text(update_sql))
-    session.commit()
+        # 更新task当前高度
+        new_height = block_num + 1
+        update_sql = 'update f_task set num = "' + str(new_height) + '" where name = "TRC"'
+        session.execute(text(update_sql))
+        session.commit()
 
 
 Base.metadata.create_all(engine, checkfirst=True)
@@ -485,19 +491,19 @@ while True:
         continue
     if GetNowBlock is None:
         continue
-    # 这里应该从db中读取TRC20的任务高度
-    sql = r'select * from f_task where name="TRC20"'
-    # 读取SQL数据库
-    df = pd.read_sql_query(sql=text(sql), con=engine.connect())  # 读取SQL数据库，并获得pandas数据帧。
-    now_block_num = int(GetNowBlock.get('block_header').get('raw_data').get('number'))
-    handle_block_count = 0
+#     # 这里应该从db中读取TRC20的任务高度
+#     sql = r'select * from f_task where name="TRC20"'
+#     # 读取SQL数据库
+#     df = pd.read_sql_query(sql=text(sql), con=engine.connect())  # 读取SQL数据库，并获得pandas数据帧。
+#     now_block_num = int(GetNowBlock.get('block_header').get('raw_data').get('number'))
+#     handle_block_count = 0
 
     # 这里应该从db中读取TRC任务高度
     sql = r'select * from f_task where name="TRC"'
     # 读取SQL数据库
     df = pd.read_sql_query(sql=text(sql), con=engine.connect())  # 读取SQL数据库，并获得pandas数据帧。
     now_block_num = int(GetNowBlock.get('block_header').get('raw_data').get('number'))
-    min_block_num = now_block_num - 1
+    #min_block_num = now_block_num - 1
     handle_block_count = 0
 
     start_height = 0

@@ -34,7 +34,7 @@ monitor_session = monitor_Session()
 Base = declarative_base()
 
 kafka_server = "172.31.46.139:9092"
-tx_tpoic = "tx-topic"
+tx_topic = "tx-topic"
 matched_topic = "match-topic"
 
 class tasks(Base):
@@ -204,7 +204,7 @@ def KafkaTxLogic(tx,contract_obj, block_num, monitor_dict):
             bb = bytes(aa_str, 'utf-8')
 
             producer.send(
-                topic=tx_tpoic,
+                topic=tx_topic,
                 value=bb).add_callback(on_send_success).add_errback(on_send_error)
 
 
@@ -282,8 +282,6 @@ def GetMonitor():
         return
     else:  # UID存在
         by_addr_dict = dict(tuple(df.groupby('f_addr')))
-        #for key in by_addr_dict:
-        #    print(key, ":", by_addr_dict[key])
         return by_addr_dict
 
 def GetMonitorHash():
@@ -294,8 +292,6 @@ def GetMonitorHash():
         return
     else:  # UID存在
         by_hash_dict = dict(tuple(df.groupby('f_hash')))
-        # for key in by_hash_dict:
-        #    print(key, ":", by_hash_dict[key])
         return by_hash_dict
 def hexStr_to_str(hex_str):
     hex = hex_str.decode('utf-8')
@@ -426,7 +422,7 @@ def parseTxAndStoreTrc(block_num, delay, monitor_dict,monitor_hash_dict):
 
                 KafkaMatchTxLogic(tx20, transaction, block_num, monitor_hash_dict, logData)  # 状态hash匹配
                 KafkaTxLogic(tx20, contract_obj, block_num, monitor_dict)  # 充值交易
-            else:  # 非合约交易
+            else:  # 非TRC20交易(包含TRC交易和10交易，应该区分)
                 tx_detail = transaction['raw_data']['contract'][0]['parameter']['value']
                 count = count + 1
                 if "amount" in tx_detail:
@@ -446,6 +442,10 @@ def parseTxAndStoreTrc(block_num, delay, monitor_dict,monitor_hash_dict):
                         t_contract_addr="",
                         t_is_contract="False"
                     )
+                    if "asset_name" in tx_detail:
+                        print("检测到TRC10交易，舍弃")
+                        continue
+
                     tx_list.append(tx)
                     contract_obj = Contract()  # 本币
                     contract_obj.t_decimal = "6"

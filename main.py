@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
 import csv
-import math
 import os.path
 import codecs
 from tronapi.tronapi import Tronapi
@@ -11,7 +10,7 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy import Column, String, Integer
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import text
-from kafka3 import KafkaProducer
+from kafka import KafkaProducer
 import binascii
 import pandas as pd
 import json
@@ -21,13 +20,13 @@ decode_hex = codecs.getdecoder("hex_codec")
 
 TransferTopic = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
 
-engine = create_engine('mysql+mysqldb://root:fat-chain-root-password@my-sql:3306/TronBlock')
-#engine = create_engine('mysql+mysqldb://root:csquan253905@127.0.0.1:3306/TronBlock')
+#engine = create_engine('mysql+mysqldb://root:fat-chain-root-password@my-sql:3306/TronBlock')
+engine = create_engine('mysql+mysqldb://root:csquan253905@127.0.0.1:3306/TronBlock')
 Session = sessionmaker(bind=engine)
 session = Session()
 
-monitor_engine = create_engine('mysql+mysqldb://root:fat-chain-root-password@my-sql:3306/Hui_Collect', pool_size=0, max_overflow=-1)
-#monitor_engine = create_engine('mysql+mysqldb://root:csquan253905@127.0.0.1:3306/HuiCollect', pool_size=0, max_overflow=-1)
+#monitor_engine = create_engine('mysql+mysqldb://root:fat-chain-root-password@my-sql:3306/Hui_Collect', pool_size=0, max_overflow=-1)
+monitor_engine = create_engine('mysql+mysqldb://root:csquan253905@127.0.0.1:3306/HuiCollect', pool_size=0, max_overflow=-1)
 monitor_Session = sessionmaker(bind=monitor_engine)
 monitor_session = monitor_Session()
 
@@ -62,6 +61,7 @@ class Transaction(Base):
     t_amount = Column(String(64), nullable=False, index=False)
     t_is_contract = Column(String(64), nullable=False, index=False)
     t_contract_addr = Column(String(64), nullable=False, index=False)
+    t_index = Column(Integer, nullable=False, index=False)
     def __repr__(self):
         return '%s(%r)' % (self.__class__.__name__, self.t_hash)
 
@@ -78,7 +78,9 @@ class TRC20Transaction(Base):
     t_block_at = Column(String(64), nullable=False, index=False)
     t_amount = Column(String(64), nullable=False, index=False)
     t_contract_addr = Column(String(64), nullable=False, index=False)
+    t_index = Column(Integer, nullable=False, index=False)
     t_status = Column(String(64), nullable=False, index=False)
+
 
     def __repr__(self):
         return '%s(%r)' % (self.__class__.__name__, self.t_hash)
@@ -128,26 +130,6 @@ def Init():
         pass
 
 
-def GetWalletArray():
-    contract_array = []
-    with open(os.getcwd() + "/config/wallet.csv") as f:
-        reader = csv.reader(f, delimiter=',', quotechar='|')
-        for row in reader:
-            if row[0] == 'address': continue
-            contract_array.append(row)
-    return contract_array
-
-
-def GetContactArray():
-    contract_array = []
-    with open(os.getcwd() + "/config/contract.csv") as f:
-        reader = csv.reader(f, delimiter=',', quotechar='|')
-        for row in reader:
-            if row[0] == 'address': continue
-            contract_array.append(row)
-    return contract_array
-
-
 def on_send_success(record_metadata=None):
     print(record_metadata.topic)
 
@@ -174,12 +156,11 @@ def KafkaTxLogic(tx,contract_obj, block_num, monitor_dict):
             txKafka["uid"] = value
 
         if tx.t_contract_addr == "":
-            txKafka["amount"] = str(tx.t_amount)
             txKafka["token_type"] = 4  #trx 本币
         else:
             txKafka["token_type"] = 5  #trx代币
-            txKafka["amount"] = str(tx.t_amount * (10 ** int(contract_obj.t_decimal)))
 
+        txKafka["amount"] = str(tx.t_amount)
         query_sql = 'select * from t_monitor_hash where f_hash = "' + tx.t_hash + '"'
         df_hash = pd.read_sql_query(text(query_sql), con=monitor_engine.connect())
 
@@ -300,8 +281,6 @@ def hexStr_to_str(hex_str):
 
 def parseTxAndStoreTrc(block_num, delay, monitor_dict,monitor_hash_dict):
     time.sleep(delay)
-    index = -1
-    count=0
     tron_api = Tronapi()
     try:
         transactionsData = tron_api.getWalletsolidityBlockByNum(block_num)
@@ -316,7 +295,6 @@ def parseTxAndStoreTrc(block_num, delay, monitor_dict,monitor_hash_dict):
         print(e)
         return
     if "transactions" in transactionsData:
-        ContactArray = GetContactArray()
         # 这里是TRC和TRC10交易，以48896576为例，158笔 和浏览器对应
         tx_list = []
         tx20_list = []
@@ -327,6 +305,8 @@ def parseTxAndStoreTrc(block_num, delay, monitor_dict,monitor_hash_dict):
             #一笔交易里可能存在多笔转账
             contracts = transaction['raw_data']['contract']
             index = -1
+            if len(contracts)>1:
+                print("many contracts")
             for contract in contracts:
                 index += 1
                 tx_type = contract['type']
@@ -360,17 +340,11 @@ def parseTxAndStoreTrc(block_num, delay, monitor_dict,monitor_hash_dict):
                         KafkaTxLogic(tx, contract_obj, block_num, monitor_dict)  # 充值交易
                     else:  # resource = "energy"
                         continue
-                else if tx_type == "TriggerSmartContract":
+                if tx_type == "TriggerSmartContract":
                     if 'contract_address' in contract['parameter']['value']: # 合约交易
                         try:
                             contract_in_hex = contract['parameter']['value']['contract_address']
-                            contract = keys.to_base58check_address(contract_in_hex)
-                            active_contract = []
-                            for temp in ContactArray:
-                                if temp[0] == contract:
-                                    active_contract = temp
-                                if len(active_contract) == 0:
-                                    continue
+                            contract_addr = keys.to_base58check_address(contract_in_hex)
                         except Exception as e:
                             print('错误0:', e)
                             continue
@@ -381,10 +355,9 @@ def parseTxAndStoreTrc(block_num, delay, monitor_dict,monitor_hash_dict):
                             continue
                         try:
                             transactionAmount = int(
-                                contract["parameter"]["value"]["data"][72:].lstrip("0"), 16) / (
-                                                1 * math.pow(10, int(active_contract[2])))
+                                contract["parameter"]["value"]["data"][72:].lstrip("0"), 16)
                         except Exception as e1:
-                            print('错误1:', e)
+                            print('错误1:', e1)
                             continue
                         from_address = keys.to_base58check_address(
                             contract['parameter']['value']['owner_address'])
@@ -401,7 +374,7 @@ def parseTxAndStoreTrc(block_num, delay, monitor_dict,monitor_hash_dict):
                             t_toAddr=to_address,
                             t_block_at=transaction_at,
                             t_amount=transactionAmount,
-                            t_contract_addr=contract,
+                            t_contract_addr=contract_addr,
                             t_status="success",
                             t_index=index
                         )
@@ -415,52 +388,48 @@ def parseTxAndStoreTrc(block_num, delay, monitor_dict,monitor_hash_dict):
                             should_call_api = False
                         else:
                             # 这里应该从db中读取TRC合约信息
-                            contract_obj = session.query(Contract).filter(Contract.t_contract_addr == contract).first()
+                            contract_obj = session.query(Contract).filter(Contract.t_contract_addr == contract_addr).first()
                             if contract_obj is not None:
                                 should_call_api = False
 
-                            if should_call_api is True:
-                                print("未在缓存和db中找到，开始取线上取")
-                                res = tron_api.getContractInfo("name()", contract_in_hex)
-                                if res['result']['result'] is True:
-                                    print(res['constant_result'][0])
-                                    print("len")
-                                    print(res['constant_result'][0][64:128].lstrip('0'))
-                                    length_str = res['constant_result'][0][64:128].lstrip('0')
-                                    print(length_str)
-                                    length = int(str(length_str), 16)
-                                    print(length)
-                                    print("name")
-                                    print(res['constant_result'][0][128:128 + length * 2])
-                                    name = bytes.fromhex(res['constant_result'][0][128:128 + length * 2]).decode()
-                                    print("name" + name)
-                                res = tron_api.getContractInfo("symbol()", contract_in_hex)
-                                if res['result']['result'] is True:
-                                    symbol = bytes.fromhex(res['constant_result'][0][128:192].rstrip('0')).decode()
-                                    print("symbol:" + symbol)
-                                res = tron_api.getContractInfo("decimals()", contract_in_hex)
-                                if res['result']['result'] is True:
-                                    decimals = res['constant_result'][0].lstrip('0')
-                                    print("decimal:" + decimals)
-                                res = tron_api.getContractInfo("totalSupply()", contract_in_hex)
-                                if res['result']['result'] is True:
-                                    totalSupply = int(res['constant_result'][0].lstrip('0'), 16)
-                                    print("totalSupply:" + str(totalSupply))
+                        if should_call_api is True:
+                            print("未在缓存和db中找到，开始取线上取")
+                            res = tron_api.getContractInfo("name()", contract_in_hex)
+                            if res['result']['result'] is True:
+                                length_str = res['constant_result'][0][64:128].lstrip('0')
+                                length = int(str(length_str), 16)
+                                name = bytes.fromhex(res['constant_result'][0][128:128 + length * 2]).decode()
+                                print("name：" + name)
+                            res = tron_api.getContractInfo("symbol()", contract_in_hex)
+                            if res['result']['result'] is True:
+                                length_str = res['constant_result'][0][64:128].lstrip('0')
+                                length = int(str(length_str), 16)
+                                symbol = bytes.fromhex(res['constant_result'][0][128:128 + length * 2]).decode()
+                                print("symbol:" + symbol)
+                            res = tron_api.getContractInfo("decimals()", contract_in_hex)
+                            if res['result']['result'] is True:
+                                decimals = res['constant_result'][0].lstrip('0')
+                                print("decimal:" + decimals)
+                            res = tron_api.getContractInfo("totalSupply()", contract_in_hex)
+                            if res['result']['result'] is True:
+                                totalSupply = int(res['constant_result'][0].lstrip('0'), 16)
+                                print("totalSupply:" + str(totalSupply))
 
-                                contract_obj = Contract(
-                                    t_contract_addr=contract,
-                                    t_name=name,
-                                    t_symbol=symbol,
-                                    t_decimal=decimals,
-                                    t_total_supply=str(totalSupply)
-                                )
+                            contract_obj = Contract(
+                                t_contract_addr=contract_addr,
+                                t_name=name,
+                                t_symbol=symbol,
+                                t_decimal=decimals,
+                                t_total_supply=str(totalSupply)
+                            )
 
-                            contract_hex_list.append(contract_in_hex)
-                            contract_list.append(contract_obj)
+                        contract_hex_list.append(contract_in_hex)
+                        contract_list.append(contract_obj)
 
-                            KafkaMatchTxLogic(tx20, transaction, block_num, monitor_hash_dict, logData)  # 状态hash匹配
-                            KafkaTxLogic(tx20, contract_obj, block_num, monitor_dict)  # 充值交易
+                        KafkaMatchTxLogic(tx20, transaction, block_num, monitor_hash_dict, logData)  # 状态hash匹配
+                        KafkaTxLogic(tx20, contract_obj, block_num, monitor_dict)  # 充值交易
                 else:  # 其它交易 忽略
+                    continue
 
             session.add_all(tx_list)
             session.add_all(tx20_list)
@@ -489,21 +458,14 @@ while True:
         # 过于频繁的请求波场接口可能会强制限制一段时间,此时sleep一下
         time.sleep(5)
         continue
-    if GetNowBlock is None:
+    if len(GetNowBlock["blockID"]) == 0:
         continue
-#     # 这里应该从db中读取TRC20的任务高度
-#     sql = r'select * from f_task where name="TRC20"'
-#     # 读取SQL数据库
-#     df = pd.read_sql_query(sql=text(sql), con=engine.connect())  # 读取SQL数据库，并获得pandas数据帧。
-#     now_block_num = int(GetNowBlock.get('block_header').get('raw_data').get('number'))
-#     handle_block_count = 0
 
     # 这里应该从db中读取TRC任务高度
     sql = r'select * from f_task where name="TRC"'
     # 读取SQL数据库
     df = pd.read_sql_query(sql=text(sql), con=engine.connect())  # 读取SQL数据库，并获得pandas数据帧。
     now_block_num = int(GetNowBlock.get('block_header').get('raw_data').get('number'))
-    #min_block_num = now_block_num - 1
     handle_block_count = 0
 
     start_height = 0
@@ -511,11 +473,9 @@ while True:
         start_height = 0
     else:
         start_height = df.num
-    # 当数据库的高度比当前高度小(delay+1)
-    print(now_block_num)
     if start_height[0] <= now_block_num:
         cur_time = str(datetime.datetime.now())  # 获取当前时间
         print("开始处理TRX交易，当前处理的高度为： " + str(start_height[0]) + "当前时间：" + cur_time)
-        parseTxAndStoreTrc(int(start_height[0]), 0,monitor_dict,monitor_hash_dict)
+        parseTxAndStoreTrc(int(start_height[0]), 0, monitor_dict, monitor_hash_dict)
 
     pass

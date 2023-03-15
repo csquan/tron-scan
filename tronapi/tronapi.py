@@ -2,7 +2,6 @@ from tronapi import keys
 from tronapi.keys import PrivateKey
 from tronapi.defaults import conf_for_name
 import requests
-import json
 from tronapi import TRX
 
 DEFAULT_CONF = {

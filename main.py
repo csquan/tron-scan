@@ -169,17 +169,18 @@ def KafkaTxLogic(tx,contract_obj, block_num, monitor_dict):
     else:  # UID存在
         print("找到UID")
         print(monitor_dict[tx.t_toAddr].f_uid)
-
+        #TODO 奇怪的逻辑
         for value in monitor_dict[tx.t_toAddr].f_uid:
             txKafka["uid"] = value
 
-        if tx.t_contract_addr == "":
+        txKafka["token_type"] = tx.t_token_type
+        if tx.t_token_type == 4:  #本币
             txKafka["amount"] = str(tx.t_amount)
-            txKafka["token_type"] = 4  #trx 本币
-        else:
-            txKafka["token_type"] = 5  #trx代币
+        else if tx.t_token_type == 5: #trc20代币
             txKafka["amount"] = str(tx.t_amount * (10 ** int(contract_obj.t_decimal)))
-
+        else :
+            print("不支持的代币类型：" + tx.t_token_type)
+            return
         query_sql = 'select * from t_monitor_hash where f_hash = "' + tx.t_hash + '"'
         df_hash = pd.read_sql_query(text(query_sql), con=monitor_engine.connect())
 
@@ -325,14 +326,14 @@ def parseTxAndStoreTrc(block_num, delay, monitor_dict,monitor_hash_dict):
         logData = tron_api.getTxInfoByNum(block_num)
         for transaction in transactionsData['transactions']:
             #一笔交易里可能存在多笔转账
-            contracts = transaction['raw_data']['contract']
+            txs = transaction['raw_data']['contract']
             index = -1
-            for contract in contracts:
+            for tx in contracts:
                 index += 1
-                tx_type = contract['type']
+                tx_type = tx['type']
                 # TransferContract： 本币交易 TransferAssetContract： TRC10交易  TriggerSmartContract：合约交易
                 if tx_type == "TransferContract":
-                    tx_detail = contract['parameter']['value']
+                    tx_detail = tx['parameter']['value']
                     if "amount" in tx_detail:
                         transactionAmount = tx_detail['amount']
                         toAddr = keys.to_base58check_address(tx_detail["to_address"])
@@ -347,6 +348,7 @@ def parseTxAndStoreTrc(block_num, delay, monitor_dict,monitor_hash_dict):
                             t_amount=transactionAmount,
                             t_contract_addr="",
                             t_is_contract="False",
+                            t_token_type=4,
                             t_index=index
                         )
 
@@ -361,9 +363,9 @@ def parseTxAndStoreTrc(block_num, delay, monitor_dict,monitor_hash_dict):
                     else:  # resource = "energy"
                         continue
                 else if tx_type == "TriggerSmartContract":
-                    if 'contract_address' in contract['parameter']['value']: # 合约交易
+                    if 'contract_address' in tx['parameter']['value']: # 合约交易
                         try:
-                            contract_in_hex = contract['parameter']['value']['contract_address']
+                            contract_in_hex = tx['parameter']['value']['contract_address']
                             contract = keys.to_base58check_address(contract_in_hex)
                             active_contract = []
                             for temp in ContactArray:
@@ -374,21 +376,21 @@ def parseTxAndStoreTrc(block_num, delay, monitor_dict,monitor_hash_dict):
                         except Exception as e:
                             print('错误0:', e)
                             continue
-                        if "data" not in contract["parameter"]["value"]:
+                        if "data" not in tx["parameter"]["value"]:
                             continue
-                        func = contract["parameter"]["value"]["data"][0:8]
+                        func = tx["parameter"]["value"]["data"][0:8]
                         if func != "a9059cbb":
                             continue
                         try:
                             transactionAmount = int(
-                                contract["parameter"]["value"]["data"][72:].lstrip("0"), 16) / (
+                                tx["parameter"]["value"]["data"][72:].lstrip("0"), 16) / (
                                                 1 * math.pow(10, int(active_contract[2])))
                         except Exception as e1:
                             print('错误1:', e)
                             continue
                         from_address = keys.to_base58check_address(
-                            contract['parameter']['value']['owner_address'])
-                        to_str = contract["parameter"]["value"]["data"][9:72].lstrip("0")
+                            tx['parameter']['value']['owner_address'])
+                        to_str = tx["parameter"]["value"]["data"][9:72].lstrip("0")
                         if len(to_str) == 0:
                             continue
                         to_address = keys.to_base58check_address(
@@ -403,6 +405,7 @@ def parseTxAndStoreTrc(block_num, delay, monitor_dict,monitor_hash_dict):
                             t_amount=transactionAmount,
                             t_contract_addr=contract,
                             t_status="success",
+                            t_token_type=5,
                             t_index=index
                         )
                         tx20_list.append(tx20)

@@ -315,11 +315,16 @@ def getContractObj(contract_in_hex):
                     print(contract_in_hex, "查不到代币name,应该没有name方法")
                     name = "unknown"
                 else:
-                    length_str = res["constant_result"][0][64:128].lstrip("0")
-                    length = int(str(length_str), 16)
-                    name = bytes.fromhex(
-                        res["constant_result"][0][128: 128 + length * 2]
-                    ).decode()
+                    try:
+                        length_str = res["constant_result"][0][64:128].lstrip("0")
+                        length = int(str(length_str), 16)
+                        name = bytes.fromhex(
+                            res["constant_result"][0][128: 128 + length * 2]
+                        ).decode()
+                    except Exception as e1:
+                        print(contract_in_hex, "查不到代币name,解析出错")
+                        name = "unknown"
+
             res = tron_api.getContractInfo("symbol()", contract_in_hex)
             if "code" in res:  # 有错误
                 print(contract_in_hex, "查不到代币symbol")
@@ -329,9 +334,13 @@ def getContractObj(contract_in_hex):
                     print(contract_in_hex, "查不到代币symbol,应该没有symbol方法")
                     symbol = "unknown"
                 else:
-                    symbol = bytes.fromhex(
-                        res["constant_result"][0][128:192].rstrip("0")
-                    ).decode()
+                    try:
+                        symbol = bytes.fromhex(
+                            res["constant_result"][0][128:192].rstrip("0")
+                        ).decode()
+                    except Exception as e2:
+                        print(contract_in_hex, "查不到代币symbol,解析出错")
+                        symbol = "unknown"
             res = tron_api.getContractInfo("decimals()", contract_in_hex)
             if "code" in res:  # 有错误
                 print(contract_in_hex, "查不到代币decimals")
@@ -341,7 +350,11 @@ def getContractObj(contract_in_hex):
                     print(contract_in_hex, "查不到代币decimals,应该没有decimals方法")
                     decimals = 18
                 else:
-                    decimals = res["constant_result"][0].lstrip("0")
+                    try:
+                        decimals = res["constant_result"][0].lstrip("0")
+                    except Exception as e3:
+                        print(contract_in_hex, "查不到代币decimals,解析出错")
+                        decimals = 18
             res = tron_api.getContractInfo("totalSupply()", contract_in_hex)
             if "code" in res:  # 有错误
                 print(contract_in_hex, "查不到代币totalSupply")
@@ -351,7 +364,11 @@ def getContractObj(contract_in_hex):
                     print(contract_in_hex, "查不到代币totalSupply,应该没有totalSupply方法")
                     totalSupply = 0
                 else:
-                    totalSupply = int(res["constant_result"][0].lstrip("0"), 16)
+                    try:
+                        totalSupply = int(res["constant_result"][0].lstrip("0"), 16)
+                    except Exception as e4:
+                        print(contract_in_hex, "查不到代币totalSupply,解析出错")
+                        totalSupply = 0
             contract_obj = Contract(
                 t_contract_addr=contract_in_hex,
                 t_name=name,
@@ -506,7 +523,8 @@ def parseTxAndStoreTrc(
                                     trc20hex = "41" + log["address"]
                                     trc20Address = keys.to_base58check_address(trc20hex)
                                     # TODO 检测 trc20Address 是否是监控的地址
-
+                                    if "topics" not in log:
+                                        continue
                                     topics = log["topics"]
                                     if topics:
                                         if topics[0] == TransferTopic:  # 转账交易

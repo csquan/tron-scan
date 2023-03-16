@@ -6,3 +6,4 @@ requests~=2.28.2
 SQLAlchemy~=2.0.3
 kafka-python3
 pandas
+yaml

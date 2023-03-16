@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
-import csv
 import os.path
+import yaml
+import _thread
 import codecs
 from tronapi.tronapi import Tronapi
 import time
@@ -10,7 +11,7 @@ from sqlalchemy import create_engine
 from sqlalchemy import Column, String, Integer
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import text
-from kafka3 import KafkaProducer
+from kafka3 import KafkaProducer, KafkaConsumer
 import binascii
 import pandas as pd
 import json
@@ -21,30 +22,25 @@ decode_hex = codecs.getdecoder("hex_codec")
 # TODO 确认监听的TRC20都是该topic
 TransferTopic = "ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
 
-# engine = create_engine('mysql+mysqldb://root:fat-chain-root-password@my-sql:3306/TronBlock')
-engine = create_engine("mysql+mysqldb://root:zzzz2020@127.0.0.1:3306/TronBlock")
-Session = sessionmaker(bind=engine)
-session = Session()
-
-# monitor_engine = create_engine('mysql+mysqldb://root:fat-chain-root-password@my-sql:3306/Hui_Collect', pool_size=0, max_overflow=-1)
-monitor_engine = create_engine(
-    "mysql+mysqldb://root:zzzz2020@127.0.0.1:3306/Hui_Collect",
-    pool_size=0,
-    max_overflow=-1,
-)
-monitor_Session = sessionmaker(bind=monitor_engine)
-monitor_session = monitor_Session()
-
 Base = sqlalchemy.orm.declarative_base()
 
-kafka_server = "172.31.46.139:9092"
+kafka_server = "kafka.fat123.ml:9092"
 tx_topic = "tx-topic"
 matched_topic = "match-topic"
+user_create_topic = "registrar-user-created"
 trx_type = 4
 trc20_type = 5
 contract_list = []
 contract_hex_list = []  # 为了查找方便，设置一个额外的数据结构
 
+def get_config(name: str):
+    conf = f"./{name}.yml"
+    if not os.path.exists(conf):
+        conf = f"../{name}.yml"
+    # 有需要修改的内容请复制到 config.toml ，并进行修改
+    with open(conf, encoding="utf-8") as f:
+        data = yaml.full_load(f)
+    return data
 
 class tasks(Base):
     __tablename__ = "f_task"
@@ -54,7 +50,6 @@ class tasks(Base):
 
     def __repr__(self):
         return "%s(%r)" % (self.__class__.__name__, self.name)
-
 
 class Transaction(Base):
     __tablename__ = "f_tx"
@@ -73,7 +68,6 @@ class Transaction(Base):
     def __repr__(self):
         return "%s(%r)" % (self.__class__.__name__, self.t_hash)
 
-
 class TRC20Transaction(Base):
     __tablename__ = "f_trc20_tx"
     t_id = Column(Integer, primary_key=True)
@@ -91,7 +85,6 @@ class TRC20Transaction(Base):
     def __repr__(self):
         return "%s(%r)" % (self.__class__.__name__, self.t_hash)
 
-
 class Contract(Base):
     __tablename__ = "f_contract"
     id = Column(Integer, primary_key=True)
@@ -104,33 +97,14 @@ class Contract(Base):
     def __repr__(self):
         return "%s(%r)" % (self.__class__.__name__, self.t_contract_addr)
 
+class UserInfo:
+    def __init__(self,uid):
+        self.f_uid = pd.Series(uid)
 
 def Init():
     trxContract.t_decimal = "6"
     trxContract.t_symbol = "trx"
     trxContract.t_name = "trx"
-
-
-def GetWalletArray():
-    contract_array = []
-    with open(os.getcwd() + "/config/wallet.csv") as f:
-        reader = csv.reader(f, delimiter=",", quotechar="|")
-        for row in reader:
-            if row[0] == "address":
-                continue
-            contract_array.append(row)
-    return contract_array
-
-
-def GetContactArray():
-    contract_array = []
-    with open(os.getcwd() + "/config/contract.csv") as f:
-        reader = csv.reader(f, delimiter=",", quotechar="|")
-        for row in reader:
-            if row[0] == "address":
-                continue
-            contract_array.append(row)
-    return contract_array
 
 
 def on_send_success(record_metadata=None):
@@ -153,9 +127,7 @@ def KafkaTxLogic(tx, contract_obj, block_num, monitor_dict):
     if tx.t_toAddr not in monitor_dict:
         return
     else:  # UID存在
-        print("找到UID")
-        print(monitor_dict[tx.t_toAddr].f_uid)
-        # TODO 奇怪的逻辑
+        # 先这么着吧
         for value in monitor_dict[tx.t_toAddr].f_uid:
             txKafka["uid"] = value
 
@@ -193,9 +165,9 @@ def KafkaTxLogic(tx, contract_obj, block_num, monitor_dict):
             bb = bytes(aa_str, "utf-8")
 
 
-#             producer.send(
-#                 topic=tx_topic,
-#                 value=bb).add_callback(on_send_success).add_errback(on_send_error)
+            producer.send(
+                topic=tx_topic,
+                value=bb).add_callback(on_send_success).add_errback(on_send_error)
 
 
 # TRC20/TRC发送kafka逻辑（充值）： 状态hash表：monitor_hash 监控表：monitor
@@ -250,12 +222,11 @@ def KafkaMatchTxLogic(tx, transaction, block_num, monitor_hash_dict, logData):
         # 测试屏蔽
 
 
-#         ret = producer.send(
-#             topic=matched_topic,
-#             value=bb).add_callback(on_send_success).add_errback(on_send_error)
-#         print("match kafka 执行结果")
-#         print(ret)
-
+        ret = producer.send(
+            topic=matched_topic,
+            value=bb).add_callback(on_send_success).add_errback(on_send_error)
+        print("match kafka 执行结果")
+        print(ret)
 
 def ParseLog(log_data, hash):
     for obj in enumerate(log_data):
@@ -266,16 +237,14 @@ def ParseLog(log_data, hash):
 
     return 0
 
-
 def GetMonitor():
-    query_sql = "select * from t_monitor"
+    query_sql = "select f_addr, f_uid from t_monitor"
     df = pd.read_sql_query(text(query_sql), con=monitor_engine.connect())
     if df.empty is True:
         return
     else:  # UID存在
         by_addr_dict = dict(tuple(df.groupby("f_addr")))
         return by_addr_dict
-
 
 def GetMonitorHash():
     query_sql = "select * from t_monitor_hash"
@@ -286,12 +255,10 @@ def GetMonitorHash():
         by_hash_dict = dict(tuple(df.groupby("f_hash")))
         return by_hash_dict
 
-
 def hexStr_to_str(hex_str):
     hex = hex_str.decode("utf-8")
     str_bin = binascii.unhexlify(hex)
     return str_bin.decode("utf-8")
-
 
 def getContractObj(contract_in_hex):
     # 1.先在当前的contract_list中查找 2.然后在db中查找 3.如果都找不到，再去远程接口取
@@ -380,7 +347,6 @@ def getContractObj(contract_in_hex):
         contract_list.append(contract_obj)
         return contract_obj
 
-
 def parseTxAndStoreTrc(
         block_num, delay, transactionsData, logsData, monitor_dict, monitor_hash_dict
 ):
@@ -430,7 +396,7 @@ def parseTxAndStoreTrc(
     except Exception as e:
         print("解析区块事件数据出错:")
         print(e)
-        return
+        return block_num
     # 解析交易数据
     if "transactions" in transactionsData:
         # 获取要监听的合约-怎么没用？
@@ -580,9 +546,54 @@ def parseTxAndStoreTrc(
         )
         session.execute(text(update_sql))
         session.commit()
+    return block_num + 1
 
+def consumer_user_create():
+    consumer = KafkaConsumer(user_create_topic, group_id='groupTrxSync', bootstrap_servers=[kafka_server],
+                             auto_offset_reset='earliest',
+                             value_deserializer=lambda m: json.loads(m.decode('utf-8')))
+    for msg in consumer:
+        try:
+            user = msg.value
+            monitor_dict[user['trx']] = UserInfo(user['uid'])
+        except Exception as e:
+            print("解析kafka数据出错", e)
+
+
+def getNewBlockNumber():
+    # 官方RPC地址 限制为一天10万次请求 每秒20次
+    try:  # TODO 需要确认 目前从rpc获取来的是不可逆区块，区块比最新高度低19个区块
+        GetNowBlock = tron_api.getConfirmedCurrentBlock()
+        return GetNowBlock
+    except Exception as e:
+        # 过于频繁的请求波场接口可能会强制限制一段时间,此时sleep一下
+        time.sleep(1)
+        return getNewBlockNumber()
+    if GetNowBlock is None:
+        time.sleep(1)
+        return getNewBlockNumber()
 
 if __name__ == '__main__':
+    config = get_config("config")
+    kafka_server = config["kafka_server"]
+    # engine = create_engine('mysql+mysqldb://root:fat-chain-root-password@my-sql:3306/TronBlock')
+    #"mysql+mysqldb://root:zzzz2020@127.0.0.1:3306/TronBlock"
+    engine = create_engine(config["mysql_tb"])
+    Session = sessionmaker(bind=engine)
+    session = Session()
+
+    # monitor_engine = create_engine('mysql+mysqldb://root:fat-chain-root-password@my-sql:3306/Hui_Collect', pool_size=0, max_overflow=-1)
+    monitor_engine = create_engine(
+        # "mysql+mysqldb://root:zzzz2020@127.0.0.1:3306/Hui_Collect",
+        config["mysql_hc"],
+        pool_size=0,
+        max_overflow=-1,
+    )
+    monitor_Session = sessionmaker(bind=monitor_engine)
+    monitor_session = monitor_Session()
+
+    monitor_dict = GetMonitor()
+    monitor_hash_dict = GetMonitorHash()
 
     trxContract = Contract()  # 本币
 
@@ -593,37 +604,44 @@ if __name__ == '__main__':
     # 初始化
     Init()
 
+    try:
+        _thread.start_new_thread(consumer_user_create, ())
+    except Exception as e:
+        print("Error: 无法启动线程", e)
+
+    # 从db中读取TRC任务高度
+    sql = r'select * from f_task where name="TRC"'
+    # 读取SQL数据库
+    df = pd.read_sql_query(
+        sql=text(sql), con=engine.connect()
+    )  # 读取SQL数据库，并获得pandas数据帧。
+
+    # 当前最新区块高度
+    now_block_num = int(getNewBlockNumber().get("block_header").get("raw_data").get("number"))
+    # 当数据库的高度比当前高度小(delay+1),官方RPC获取的是固话块delay=0,换其它RPC需要考虑deply是否也是0
+    print("当前区块高度：" + str(now_block_num))
+    # 任务开始区块
+    start_height = [0]
+    if df.empty is False:
+        start_height = df.num
+    taskBeginBlockNumber = start_height[0]
     # 死循环去扫块
     while True:
-        # TODO  监控的地址 ？
-        monitor_dict = GetMonitor()
-        # TODO 监控的hash ？
-        monitor_hash_dict = GetMonitorHash()
-        # 官方RPC地址 限制为一天10万次请求 每秒20次
-        try:  # TODO 需要确认 目前从rpc获取来的是不可逆区块，区块比最新高度低19个区块
-            GetNowBlock = tron_api.getConfirmedCurrentBlock()
-        except Exception as e:
-            # 过于频繁的请求波场接口可能会强制限制一段时间,此时sleep一下
-            time.sleep(1)
-            continue
-        if GetNowBlock is None:
-            time.sleep(1)
-            continue
-
-        # 从db中读取TRC任务高度
-        sql = r'select * from f_task where name="TRC"'
-        # 读取SQL数据库
-        df = pd.read_sql_query(
-            sql=text(sql), con=engine.connect()
-        )  # 读取SQL数据库，并获得pandas数据帧。
-        now_block_num = int(GetNowBlock.get("block_header").get("raw_data").get("number"))
-        start_height = [0]
-        if df.empty is False:
-            start_height = df.num
-        # 当数据库的高度比当前高度小(delay+1),官方RPC获取的是固话块delay=0,换其它RPC需要考虑deply是否也是0
-        print("当前区块高度：" + str(now_block_num))
-        if start_height[0] <= now_block_num:
+        if taskBeginBlockNumber <= now_block_num:
             cur_time = str(datetime.datetime.now())  # 获取当前时间
-            print("开始处理TRX交易，当前处理的高度为： " + str(start_height[0]) + " 当前时间：" + cur_time)
-            parseTxAndStoreTrc(int(start_height[0]), 0, {}, [], monitor_dict, monitor_hash_dict)
+            print("开始处理TRX交易，当前处理的高度为： ", taskBeginBlockNumber,  " 当前时间：", cur_time)
+            nextBlockNumber = parseTxAndStoreTrc(int(taskBeginBlockNumber), 0, {}, [], monitor_dict, monitor_hash_dict)
+            if nextBlockNumber <= now_block_num:
+                taskBeginBlockNumber = nextBlockNumber
+            else:
+                while True:
+                    last_block_num = int(getNewBlockNumber().get("block_header").get("raw_data").get("number"))
+                    if now_block_num == last_block_num:
+                        time.sleep(2)
+                    elif now_block_num < last_block_num:
+                        now_block_num = last_block_num
+                        break
+                    else:
+                        time.sleep(2)
+
         pass

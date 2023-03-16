@@ -47,7 +47,9 @@ def to_base58check_address(raw_addr: Union[str, bytes]) -> str:
             return base58.b58encode_check(b"\x41" + bytes.fromhex(raw_addr)).decode()
         elif len(raw_addr) == 42:
             if raw_addr.startswith("0x"):  # eth address format
-                return base58.b58encode_check(b"\x41" + bytes.fromhex(raw_addr[2:])).decode()
+                return base58.b58encode_check(
+                    b"\x41" + bytes.fromhex(raw_addr[2:])
+                ).decode()
             else:
                 return base58.b58encode_check(bytes.fromhex(raw_addr)).decode()
         elif raw_addr.startswith("0x") and len(raw_addr) == 44:
@@ -58,7 +60,7 @@ def to_base58check_address(raw_addr: Union[str, bytes]) -> str:
         if len(raw_addr) == 20:  # eth address format
             return base58.b58encode_check(b"\x41" + raw_addr).decode()
         return to_base58check_address(raw_addr.decode())
-    return ''
+    return ""
 
 
 def to_hex_address(raw_addr: Union[str, bytes]) -> str:
@@ -203,9 +205,9 @@ class PrivateKey(BaseKey):
             assert isinstance(private_key_bytes, (bytes,))
             assert len(private_key_bytes) == 32
             assert (
-                    0
-                    < int.from_bytes(private_key_bytes, "big")
-                    < 115792089237316195423570985008687907852837564279074904382605163141518161494337
+                0
+                < int.from_bytes(private_key_bytes, "big")
+                < 115792089237316195423570985008687907852837564279074904382605163141518161494337
             )
         except AssertionError:
             raise BadKey
@@ -219,7 +221,9 @@ class PrivateKey(BaseKey):
 
     def sign_msg(self, message: bytes) -> "Signature":
         """Sign a raw message."""
-        sk = ecdsa.SigningKey.from_string(self._raw_key, curve=ecdsa.SECP256k1, hashfunc=hashlib.sha256)
+        sk = ecdsa.SigningKey.from_string(
+            self._raw_key, curve=ecdsa.SECP256k1, hashfunc=hashlib.sha256
+        )
         signature = sk.sign_deterministic(message)
 
         # recover address to get rec_id
@@ -235,7 +239,9 @@ class PrivateKey(BaseKey):
 
     def sign_msg_hash(self, message_hash: bytes) -> "Signature":
         """Sign a message hash(sha256)."""
-        sk = ecdsa.SigningKey.from_string(self._raw_key, curve=ecdsa.SECP256k1, hashfunc=hashlib.sha256)
+        sk = ecdsa.SigningKey.from_string(
+            self._raw_key, curve=ecdsa.SECP256k1, hashfunc=hashlib.sha256
+        )
         signature = sk.sign_digest_deterministic(message_hash)
 
         # recover address to get rec_id
@@ -280,25 +286,35 @@ class Signature(ByteString):
     def recover_public_key_from_msg(self, message: bytes) -> PublicKey:
         """Recover public key(address) from message and signature."""
         vks = ecdsa.VerifyingKey.from_public_key_recovery(
-            self._raw_signature[:64], message, curve=ecdsa.SECP256k1, hashfunc=hashlib.sha256
+            self._raw_signature[:64],
+            message,
+            curve=ecdsa.SECP256k1,
+            hashfunc=hashlib.sha256,
         )
         return PublicKey(vks[self.v].to_string())
 
     def recover_public_key_from_msg_hash(self, message_hash: bytes) -> PublicKey:
         """Recover public key(address) from message hash and signature."""
         vks = ecdsa.VerifyingKey.from_public_key_recovery_with_digest(
-            self._raw_signature[:64], message_hash, curve=ecdsa.SECP256k1, hashfunc=hashlib.sha256
+            self._raw_signature[:64],
+            message_hash,
+            curve=ecdsa.SECP256k1,
+            hashfunc=hashlib.sha256,
         )
         return PublicKey(vks[self.v].to_string())
 
     def verify_msg(self, message: bytes, public_key: PublicKey) -> bool:
         """Verify message and signature."""
-        vk = ecdsa.VerifyingKey.from_string(public_key.to_bytes(), curve=ecdsa.SECP256k1)
+        vk = ecdsa.VerifyingKey.from_string(
+            public_key.to_bytes(), curve=ecdsa.SECP256k1
+        )
         return vk.verify(self._raw_signature[:64], message, hashfunc=hashlib.sha256)
 
     def verify_msg_hash(self, message_hash: bytes, public_key: PublicKey) -> bool:
         """Verify message hash and signature."""
-        vk = ecdsa.VerifyingKey.from_string(public_key.to_bytes(), curve=ecdsa.SECP256k1)
+        vk = ecdsa.VerifyingKey.from_string(
+            public_key.to_bytes(), curve=ecdsa.SECP256k1
+        )
         return vk.verify_digest(self._raw_signature[:64], message_hash)
 
     @property
@@ -314,7 +330,7 @@ class Signature(ByteString):
         return self._raw_signature.hex()
 
     @classmethod
-    def fromhex(cls, hex_str: str) -> 'Signature':
+    def fromhex(cls, hex_str: str) -> "Signature":
         """Construct a Signature from hex str."""
         return cls(bytes.fromhex(hex_str))
 

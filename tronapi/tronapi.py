@@ -11,19 +11,17 @@ DEFAULT_CONF = {
 }
 
 
-class Tronapi(object):
-    conf = {
-        "fee_limit": 10_000_000,
-        "timeout": 10_000_000,
-        "fullnode": "https://rpc.ankr.com/http/tron",  # "https://api.trongrid.io"
-    }
+class Tronapi:
     network = ""
-
+    rpc = ""
+    conf = {}
     def __init__(
-        self, network: str = "mainnet", priv_key: str = None, owner: str = None
+        self, network: str = "mainnet", rpc: str = None, priv_key: str = None, owner: str = None
     ):
-        self.conf = DEFAULT_CONF
-        self.conf["fullnode"] = conf_for_name(network)["fullnode"]
+        if rpc is None:
+            self.conf = {"fee_limit": 10_000_000, "timeout": 10_000_000, "fullnode": conf_for_name(network)["fullnode"]}
+        else:
+            self.conf = {"fee_limit": 10_000_000, "timeout": 10_000_000, "fullnode": rpc}
         if priv_key is not None:
             self.priv_key = PrivateKey(bytes.fromhex(priv_key))
         if owner is not None:

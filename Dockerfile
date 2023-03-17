@@ -1,6 +1,6 @@
-FROM reg.huiwang.io/fat/tron-base:1
+FROM reg.huiwang.io/fat/tron-base:2
 COPY tronapi /work/tronapi
-COPY config  /work/config
+COPY ./conf/config.yml  /work/conf/
 COPY main.py /work/main.py
 CMD ["python main.py"]
 

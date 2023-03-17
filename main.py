@@ -24,7 +24,7 @@ TransferTopic = "ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3e
 
 Base = sqlalchemy.orm.declarative_base()
 
-kafka_server = "kafka.fat123.ml:9092"
+kafka_server = []
 tx_topic = "tx-topic"
 matched_topic = "match-topic"
 user_create_topic = "registrar-user-created"
@@ -34,9 +34,7 @@ contract_list = []
 contract_hex_list = []  # 为了查找方便，设置一个额外的数据结构
 
 def get_config(name: str):
-    conf = f"./{name}.yml"
-    if not os.path.exists(conf):
-        conf = f"../{name}.yml"
+    conf = f"./conf/{name}.yml"
     # 有需要修改的内容请复制到 config.toml ，并进行修改
     with open(conf, encoding="utf-8") as f:
         data = yaml.full_load(f)
@@ -152,7 +150,7 @@ def KafkaTxLogic(tx, contract_obj, block_num, monitor_dict):
             txKafka["asset_symbol"] = contract_obj.t_symbol
             txKafka["tx_height"] = block_num
             txKafka["cur_chain_height"] = block_num + 19
-            txKafka["log_index"] = tx.tx_index
+            txKafka["log_index"] = tx.t_index
 
             aa_str = json.dumps(
                 txKafka, default=lambda o: o.__dict__, sort_keys=True, indent=4
@@ -547,9 +545,9 @@ def parseTxAndStoreTrc(
         session.execute(text(update_sql))
         session.commit()
     return block_num + 1
-
+# TODO 优化一个 定时刷新数据库增量数据的任务 防止kafka出错或者没读取到数据
 def consumer_user_create():
-    consumer = KafkaConsumer(user_create_topic, group_id='groupTrxSync', bootstrap_servers=[kafka_server],
+    consumer = KafkaConsumer(user_create_topic, group_id='groupTrxSync', bootstrap_servers=kafka_server,
                              auto_offset_reset='earliest',
                              value_deserializer=lambda m: json.loads(m.decode('utf-8')))
     for msg in consumer:
@@ -598,7 +596,7 @@ if __name__ == '__main__':
     trxContract = Contract()  # 本币
 
     # 波场API对象
-    tron_api = Tronapi()
+    tron_api = Tronapi(rpc=config["trx_rpc"])
 
     Base.metadata.create_all(engine, checkfirst=True)
     # 初始化
@@ -631,8 +629,9 @@ if __name__ == '__main__':
             cur_time = str(datetime.datetime.now())  # 获取当前时间
             print("开始处理TRX交易，当前处理的高度为： ", taskBeginBlockNumber,  " 当前时间：", cur_time)
             nextBlockNumber = parseTxAndStoreTrc(int(taskBeginBlockNumber), 0, {}, [], monitor_dict, monitor_hash_dict)
+            taskBeginBlockNumber = nextBlockNumber
             if nextBlockNumber <= now_block_num:
-                taskBeginBlockNumber = nextBlockNumber
+                pass
             else:
                 while True:
                     last_block_num = int(getNewBlockNumber().get("block_header").get("raw_data").get("number"))

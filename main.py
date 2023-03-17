@@ -156,9 +156,7 @@ def KafkaTxLogic(tx, contract_obj, block_num, monitor_dict):
                 txKafka, default=lambda o: o.__dict__, sort_keys=True, indent=4
             )
 
-            bootstrap_servers = [kafka_server]
-
-            producer = KafkaProducer(bootstrap_servers=bootstrap_servers)
+            producer = KafkaProducer(bootstrap_servers=kafka_server)
 
             bb = bytes(aa_str, "utf-8")
 
@@ -211,9 +209,7 @@ def KafkaMatchTxLogic(tx, transaction, block_num, monitor_hash_dict, logData):
             txpush, default=lambda o: o.__dict__, sort_keys=True, indent=4
         )
 
-        bootstrap_servers = [kafka_server]
-
-        producer = KafkaProducer(bootstrap_servers=bootstrap_servers)
+        producer = KafkaProducer(bootstrap_servers=kafka_server)
 
         bb = bytes(aa_str, "utf-8")
         print(bb)
@@ -574,6 +570,7 @@ def getNewBlockNumber():
 if __name__ == '__main__':
     config = get_config("config")
     kafka_server = config["kafka_server"]
+    print(kafka_server)
     # engine = create_engine('mysql+mysqldb://root:fat-chain-root-password@my-sql:3306/TronBlock')
     #"mysql+mysqldb://root:zzzz2020@127.0.0.1:3306/TronBlock"
     engine = create_engine(config["mysql_tb"])

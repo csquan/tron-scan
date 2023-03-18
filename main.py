@@ -59,7 +59,7 @@ class Transaction(Base):
     t_fromAddr = Column(String(64), nullable=False, index=False)
     t_toAddr = Column(String(64), nullable=False, index=False)
     t_block_at = Column(String(64), nullable=False, index=False)
-    t_amount = Column(String(64), nullable=False, index=False)
+    t_amount = Column(String(78), nullable=False, index=False)
     t_is_contract = Column(String(64), nullable=False, index=False)
     t_contract_addr = Column(String(64), nullable=False, index=False)
     t_token_type = Column(Integer, nullable=False, index=False)
@@ -86,7 +86,7 @@ class TRC20Transaction(Base):
     t_fromAddr = Column(String(64), nullable=False, index=False)
     t_toAddr = Column(String(64), nullable=False, index=False)
     t_block_at = Column(String(64), nullable=False, index=False)
-    t_amount = Column(String(64), nullable=False, index=False)
+    t_amount = Column(String(78), nullable=False, index=False)
     t_contract_addr = Column(String(64), nullable=False, index=False)
     t_status = Column(String(64), nullable=False, index=False)
     t_token_type = Column(Integer, nullable=False, index=False)
@@ -110,7 +110,7 @@ class Contract(Base):
     t_name = Column(String(64), nullable=False, index=False)
     t_symbol = Column(String(64), nullable=False, index=True)
     t_decimal = Column(String(64), nullable=False, index=False)
-    t_total_supply = Column(String(64), nullable=False, index=False)
+    t_total_supply = Column(String(78), nullable=False, index=False)
 
     def __repr__(self):
         return "%s(%r)" % (self.__class__.__name__, self.t_contract_addr)

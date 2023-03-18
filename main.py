@@ -23,7 +23,7 @@ decode_hex = codecs.getdecoder("hex_codec")
 TransferTopic = "ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
 
 Base = sqlalchemy.orm.declarative_base()
-
+engine = {}
 kafka_server = []
 tx_topic = "tx-topic"
 matched_topic = "match-topic"
@@ -50,7 +50,9 @@ class tasks(Base):
         return "%s(%r)" % (self.__class__.__name__, self.name)
 
 class Transaction(Base):
-    __tablename__ = "f_tx"
+    #__tablename__ = "f_tx"
+    __abstract__ = True  # 关键语句,定义所有数据库表对应的父类
+    __table_args__ = {"extend_existing": True}  # 允许表已存在
     t_id = Column(Integer, primary_key=True)
     t_hash = Column(String(64), nullable=False, index=True)
     t_block = Column(Integer, nullable=False, index=False)
@@ -66,8 +68,18 @@ class Transaction(Base):
     def __repr__(self):
         return "%s(%r)" % (self.__class__.__name__, self.t_hash)
 
+def get_tx_model_cls(cid, cid_class_dict={}):
+    if cid not in cid_class_dict:
+        cls_name = table_name = cid
+        cls = type(cls_name, (Transaction, ), {'__tablename__': table_name})
+        cid_class_dict[cid] = cls
+        Base.metadata.create_all(engine, checkfirst=True)
+    return cid_class_dict[cid]
+
 class TRC20Transaction(Base):
-    __tablename__ = "f_trc20_tx"
+    #__tablename__ = "f_trc20_tx"
+    __abstract__ = True  # 关键语句,定义所有数据库表对应的父类
+    __table_args__ = {"extend_existing": True}  # 允许表已存在
     t_id = Column(Integer, primary_key=True)
     t_hash = Column(String(64), nullable=False, index=True)
     t_block = Column(Integer, nullable=False, index=False)
@@ -82,6 +94,14 @@ class TRC20Transaction(Base):
 
     def __repr__(self):
         return "%s(%r)" % (self.__class__.__name__, self.t_hash)
+
+def get_trc20_model_cls(cid, trc20_class_dict={}):
+    if cid not in trc20_class_dict:
+        cls_name = table_name = cid
+        cls = type(cls_name, (TRC20Transaction, ), {'__tablename__': table_name})
+        trc20_class_dict[cid] = cls
+        Base.metadata.create_all(engine, checkfirst=True)
+    return trc20_class_dict[cid]
 
 class Contract(Base):
     __tablename__ = "f_contract"
@@ -381,16 +401,21 @@ def parseTxAndStoreTrc(
             )
     # 解析区块时间
     try:
-        transaction_at = (
+        transaction_time = (
                              transactionsData["block_header"]["raw_data"]["timestamp"]
                          ) / 1000
         transaction_at = time.strftime(
-            "%Y-%m-%d %H:%M:%S", time.localtime(transaction_at)
+            "%Y-%m-%d %H:%M:%S", time.localtime(transaction_time)
+        )
+        transaction_data = time.strftime(
+            "%Y-%m-%d", time.localtime(transaction_time)
         )
     except Exception as e:
         print("解析区块事件数据出错:")
         print(e)
         return block_num
+    f_tx_table = "f_tx_" + transaction_data
+    f_trc20_tx_table = "f_trc20_tx_" + transaction_data
     # 解析交易数据
     if "transactions" in transactionsData:
         # 获取要监听的合约-怎么没用？
@@ -420,7 +445,7 @@ def parseTxAndStoreTrc(
                             tx_detail["owner_address"]
                         )
                         # write to mysql
-                        tx = Transaction(
+                        tx = get_tx_model_cls(f_tx_table)(
                             t_hash=txId,
                             t_block=block_num,
                             t_fromAddr=fromAddr,
@@ -458,7 +483,7 @@ def parseTxAndStoreTrc(
                                             fromAddr = keys.to_base58check_address(intx["caller_address"])
                                             toAddr = keys.to_base58check_address(intx["transferTo_address"])
                                             # write to mysql
-                                            tx = Transaction(
+                                            tx = get_tx_model_cls(f_tx_table)(
                                                 t_hash=txId,
                                                 t_block=block_num,
                                                 t_fromAddr=fromAddr,
@@ -501,7 +526,7 @@ def parseTxAndStoreTrc(
                                                     byteorder="big",
                                                 )
                                             # write to mysql
-                                            tx20 = TRC20Transaction(
+                                            tx20 = get_trc20_model_cls(f_trc20_tx_table)(
                                                 t_hash=txId,
                                                 t_block=block_num,
                                                 t_fromAddr=keys.to_base58check_address("41" + topics[1][24:]),

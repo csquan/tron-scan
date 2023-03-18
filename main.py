@@ -408,7 +408,7 @@ def parseTxAndStoreTrc(
             "%Y-%m-%d %H:%M:%S", time.localtime(transaction_time)
         )
         transaction_data = time.strftime(
-            "%Y-%m-%d", time.localtime(transaction_time)
+            "%Y_%m_%d", time.localtime(transaction_time)
         )
     except Exception as e:
         print("解析区块事件数据出错:")
@@ -433,8 +433,6 @@ def parseTxAndStoreTrc(
                 tx_type = tra["type"]
                 # 找到 txID
                 txId = transaction["txID"]
-                if txId == "5debd44813b0ef03537c62238b66b939558a9d1702c51b480b91bee254b7e6a0":
-                    print(txId)
                 # TransferContract： 本币交易 TransferAssetContract： TRC10交易  TriggerSmartContract：合约交易
                 if tx_type == "TransferContract":
                     tx_detail = tra["parameter"]["value"]
@@ -465,8 +463,6 @@ def parseTxAndStoreTrc(
                     else:  # resource = "energy"
                         continue
                 elif tx_type == "TriggerSmartContract":
-                    if txId == "5debd44813b0ef03537c62238b66b939558a9d1702c51b480b91bee254b7e6a0":
-                        print(txId)
                     # 找到logs
                     for logs in logsData:
                         if logs["id"] == txId:  # 找到了对应的tx_id

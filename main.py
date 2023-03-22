@@ -173,7 +173,7 @@ def KafkaTxLogic(tx, contract_obj, block_num, monitor_dict):
             txKafka["log_index"] = tx.t_index
 
             aa_str = json.dumps(
-                txKafka, default=lambda o: o.__dict__, sort_keys=True, indent=4
+                txKafka, default=lambda o: o.__dir__, sort_keys=True, indent=4
             )
 
             producer = KafkaProducer(bootstrap_servers=kafka_server)
@@ -226,7 +226,7 @@ def KafkaMatchTxLogic(tx, transaction, block_num, monitor_hash_dict, logData):
         print(txpush)
 
         aa_str = json.dumps(
-            txpush, default=lambda o: o.__dict__, sort_keys=True, indent=4
+            txpush, default=lambda o: o.__dir__, sort_keys=True, indent=4
         )
 
         producer = KafkaProducer(bootstrap_servers=kafka_server)

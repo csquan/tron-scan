@@ -2,3 +2,5 @@
 data
 config
 .venv
+
+conf/config-prod.yml

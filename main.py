@@ -25,6 +25,8 @@ TransferTopic = "ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3e
 Base = sqlalchemy.orm.declarative_base()
 engine = {}
 kafka_server = []
+kafka_username = ""
+kafka_password = ""
 tx_topic = "tx-topic"
 matched_topic = "match-topic"
 user_create_topic = "registrar-user-created"
@@ -176,7 +178,13 @@ def KafkaTxLogic(tx, contract_obj, block_num, monitor_dict):
                 txKafka, default=lambda o: o.__dict__, sort_keys=True, indent=4
             )
 
-            producer = KafkaProducer(bootstrap_servers=kafka_server)
+            producer = KafkaProducer(
+                security_protocol="SASL_PLAINTEXT",
+                sasl_mechanism="PLAIN",
+                sasl_plain_username=kafka_username,
+                sasl_plain_password=kafka_password,
+                bootstrap_servers=kafka_server
+            )
 
             bb = bytes(aa_str, "utf-8")
 
@@ -229,7 +237,12 @@ def KafkaMatchTxLogic(tx, transaction, block_num, monitor_hash_dict, logData):
             txpush, default=lambda o: o.__dict__, sort_keys=True, indent=4
         )
 
-        producer = KafkaProducer(bootstrap_servers=kafka_server)
+        producer = KafkaProducer(
+            security_protocol="SASL_PLAINTEXT",
+            sasl_mechanism="PLAIN",
+            sasl_plain_username=kafka_username,
+            sasl_plain_password=kafka_password,
+            bootstrap_servers=kafka_server)
 
         bb = bytes(aa_str, "utf-8")
         print(bb)
@@ -564,8 +577,16 @@ def parseTxAndStoreTrc(
     return block_num + 1
 # TODO 优化一个 定时刷新数据库增量数据的任务 防止kafka出错或者没读取到数据
 def consumer_user_create():
-    consumer = KafkaConsumer(user_create_topic, group_id='groupTrxSync', bootstrap_servers=kafka_server,
-                             auto_offset_reset='earliest',
+    consumer = KafkaConsumer(user_create_topic,
+                             group_id='groupTrxSync',
+                             # enable_auto_commit=True,
+                             # auto_commit_interval_ms=2,
+                             sasl_mechanism="PLAIN",
+                             security_protocol='SASL_PLAINTEXT',
+                             sasl_plain_username=kafka_username,
+                             sasl_plain_password=kafka_password,
+                             bootstrap_servers=kafka_server,
+                             # auto_offset_reset='earliest',
                              value_deserializer=lambda m: json.loads(m.decode('utf-8')))
     for msg in consumer:
         try:
@@ -591,6 +612,8 @@ def getNewBlockNumber():
 if __name__ == '__main__':
     config = get_config("config")
     kafka_server = config["kafka_server"]
+    kafka_username = config["kafka_username"]
+    kafka_password = config["kafka_password"]
     print(kafka_server)
     # engine = create_engine('mysql+mysqldb://root:fat-chain-root-password@my-sql:3306/TronBlock')
     #"mysql+mysqldb://root:zzzz2020@127.0.0.1:3306/TronBlock"

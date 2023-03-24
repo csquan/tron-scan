@@ -623,7 +623,7 @@ if __name__ == '__main__':
     engine = create_engine(config["mysql_tb"])
     Session = sessionmaker(bind=engine)
     session = Session()
-
+    print("mysql_tb connect")
     # monitor_engine = create_engine('mysql+mysqldb://root:fat-chain-root-password@my-sql:3306/Hui_Collect', pool_size=0, max_overflow=-1)
     monitor_engine = create_engine(
         # "mysql+mysqldb://root:zzzz2020@127.0.0.1:3306/Hui_Collect",
@@ -633,6 +633,7 @@ if __name__ == '__main__':
     )
     monitor_Session = sessionmaker(bind=monitor_engine)
     monitor_session = monitor_Session()
+    print("mysql_hc connect")
 
     monitor_dict = GetMonitor()
     monitor_hash_dict = GetMonitorHash()
@@ -643,6 +644,7 @@ if __name__ == '__main__':
     tron_api = Tronapi(rpc=config["trx_rpc"])
 
     Base.metadata.create_all(engine, checkfirst=True)
+    print("mysql done")
     # 初始化
     Init()
 

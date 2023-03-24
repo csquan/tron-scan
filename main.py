@@ -179,6 +179,7 @@ def KafkaTxLogic(tx, contract_obj, block_num, monitor_dict):
             )
 
             producer = KafkaProducer(
+                api_version=(2,8,1),
                 security_protocol="SASL_PLAINTEXT",
                 sasl_mechanism="PLAIN",
                 sasl_plain_username=kafka_username,
@@ -238,6 +239,7 @@ def KafkaMatchTxLogic(tx, transaction, block_num, monitor_hash_dict, logData):
         )
 
         producer = KafkaProducer(
+            api_version=(2,8,1),
             security_protocol="SASL_PLAINTEXT",
             sasl_mechanism="PLAIN",
             sasl_plain_username=kafka_username,
@@ -586,6 +588,7 @@ def consumer_user_create():
                              sasl_plain_username=kafka_username,
                              sasl_plain_password=kafka_password,
                              bootstrap_servers=kafka_server,
+                             api_version=(2,8,1),
                              # auto_offset_reset='earliest',
                              value_deserializer=lambda m: json.loads(m.decode('utf-8')))
     for msg in consumer:

@@ -1,6 +1,8 @@
 kafka_server:
   - kafka.fat123.ml:9092
   - kafka.fat123.ml:9092
+kafka_username: ""
+kafka_password: ""
 mysql_tb: mysql+mysqldb://root:zzzz2020@127.0.0.1:3306/TronBlock
 mysql_hc: mysql+mysqldb://root:zzzz2020@127.0.0.1:3306/Hui_Collect
 trx_rpc:

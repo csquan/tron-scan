@@ -179,8 +179,8 @@ def KafkaTxLogic(tx, contract_obj, block_num, monitor_dict):
             )
 
             producer = KafkaProducer(
+                security_protocol='SSL',
                 api_version=(2,8,1),
-                security_protocol="SASL_PLAINTEXT",
                 sasl_mechanism="PLAIN",
                 sasl_plain_username=kafka_username,
                 sasl_plain_password=kafka_password,
@@ -240,7 +240,7 @@ def KafkaMatchTxLogic(tx, transaction, block_num, monitor_hash_dict, logData):
 
         producer = KafkaProducer(
             api_version=(2,8,1),
-            security_protocol="SASL_PLAINTEXT",
+            security_protocol="SSL",
             sasl_mechanism="PLAIN",
             sasl_plain_username=kafka_username,
             sasl_plain_password=kafka_password,
@@ -583,8 +583,8 @@ def consumer_user_create():
                              group_id='groupTrxSync',
                              # enable_auto_commit=True,
                              # auto_commit_interval_ms=2,
+                             security_protocol="SSL",
                              sasl_mechanism="PLAIN",
-                             security_protocol='SASL_PLAINTEXT',
                              sasl_plain_username=kafka_username,
                              sasl_plain_password=kafka_password,
                              bootstrap_servers=kafka_server,

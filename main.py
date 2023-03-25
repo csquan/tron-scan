@@ -188,12 +188,12 @@ def KafkaTxLogic(tx, contract_obj, block_num, monitor_dict):
             )
 
             bb = bytes(aa_str, "utf-8")
-
+            print("send message :", bb)
 
             producer.send(
                 topic=tx_topic,
                 value=bb).add_callback(on_send_success).add_errback(on_send_error)
-
+            print("send message end")
 
 # TRC20/TRC发送kafka逻辑（充值）： 状态hash表：monitor_hash 监控表：monitor
 # 1 从监控表中取tx20.toAdd地址对应的UID ，如果能取到，则进入下一阶段
@@ -589,11 +589,12 @@ def consumer_user_create():
                              sasl_plain_password=kafka_password,
                              bootstrap_servers=kafka_server,
                              api_version=(2,8,1),
-                             # auto_offset_reset='earliest',
+                             auto_offset_reset='earliest',
                              value_deserializer=lambda m: json.loads(m.decode('utf-8')))
     for msg in consumer:
         try:
             user = msg.value
+            print("user receive :", user)
             monitor_dict[user['trx']] = UserInfo(user['uid'])
         except Exception as e:
             print("解析kafka数据出错", e)

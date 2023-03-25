@@ -593,7 +593,7 @@ def consumer_user_create():
                              sasl_plain_password=kafka_password,
                              bootstrap_servers=kafka_server,
                              api_version=(2,8,1),
-                             auto_offset_reset='earliest',
+                             # auto_offset_reset='earliest',
                              value_deserializer=lambda m: json.loads(m.decode('utf-8')))
     for msg in consumer:
         try:

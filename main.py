@@ -174,6 +174,10 @@ def KafkaTxLogic(tx, contract_obj, block_num, monitor_dict):
             txKafka["cur_chain_height"] = block_num + 19
             txKafka["log_index"] = tx.t_index
 
+            for value in monitor_dict[tx.t_toAddr].f_appid:
+                txKafka["api_key"] = value
+            print("取出对应的appkey:", txKafka["api_key"])
+
             aa_str = json.dumps(
                 txKafka, default=lambda o: o.__dict__, sort_keys=True, indent=4
             )
@@ -267,7 +271,7 @@ def ParseLog(log_data, hash):
     return 0
 
 def GetMonitor():
-    query_sql = "select f_addr, f_uid from t_monitor"
+    query_sql = "select f_addr, f_uid, f_appid from t_monitor"
     df = pd.read_sql_query(text(query_sql), con=monitor_engine.connect())
     if df.empty is True:
         return

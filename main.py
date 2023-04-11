@@ -181,15 +181,19 @@ def KafkaTxLogic(tx, contract_obj, block_num, monitor_dict):
             aa_str = json.dumps(
                 txKafka, default=lambda o: o.__dict__, sort_keys=True, indent=4
             )
-
-            producer = KafkaProducer(
-                security_protocol='SASL_SSL',
-                api_version=(2,8,1),
-                sasl_mechanism="SCRAM-SHA-512",
-                sasl_plain_username=kafka_username,
-                sasl_plain_password=kafka_password,
-                bootstrap_servers=kafka_server
-            )
+            if kafka_username != "" :
+                producer = KafkaProducer(
+                    bootstrap_servers=kafka_server
+                )
+            else:
+                producer = KafkaProducer(
+                    security_protocol='SASL_SSL',
+                    api_version=(2,8,1),
+                    sasl_mechanism="SCRAM-SHA-512",
+                    sasl_plain_username=kafka_username,
+                    sasl_plain_password=kafka_password,
+                    bootstrap_servers=kafka_server
+                )
 
             bb = bytes(aa_str, "utf-8")
             print("send message :", bb)
@@ -241,14 +245,18 @@ def KafkaMatchTxLogic(tx, transaction, block_num, monitor_hash_dict, logData):
         aa_str = json.dumps(
             txpush, default=lambda o: o.__dict__, sort_keys=True, indent=4
         )
-
-        producer = KafkaProducer(
-            api_version=(2,8,1),
-            security_protocol="SASL_SSL",
-            sasl_mechanism="SCRAM-SHA-512",
-            sasl_plain_username=kafka_username,
-            sasl_plain_password=kafka_password,
-            bootstrap_servers=kafka_server)
+        if kafka_username != "" :
+            producer = KafkaProducer(
+                bootstrap_servers=kafka_server
+            )
+        else:
+            producer = KafkaProducer(
+                api_version=(2,8,1),
+                security_protocol="SASL_SSL",
+                sasl_mechanism="SCRAM-SHA-512",
+                sasl_plain_username=kafka_username,
+                sasl_plain_password=kafka_password,
+                bootstrap_servers=kafka_server)
 
         bb = bytes(aa_str, "utf-8")
         print(bb)
@@ -583,7 +591,12 @@ def parseTxAndStoreTrc(
     return block_num + 1
 # TODO 优化一个 定时刷新数据库增量数据的任务 防止kafka出错或者没读取到数据
 def consumer_user_create():
-    consumer = KafkaConsumer(user_create_topic,
+    if kafka_username != "":
+        consumer = KafkaConsumer(user_create_topic, group_id='groupTrxSync', bootstrap_servers=kafka_server,
+                             auto_offset_reset='earliest',
+                             value_deserializer=lambda m: json.loads(m.decode('utf-8')))
+    else:
+        consumer = KafkaConsumer(user_create_topic,
                              group_id='groupTrxSync',
                              # enable_auto_commit=True,
                              # auto_commit_interval_ms=2,

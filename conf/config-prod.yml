@@ -1,0 +1,9 @@
+kafka_server:
+  - b-1.bcapi.942x8w.c3.kafka.ap-southeast-1.amazonaws.com:9096
+  - b-2.bcapi.942x8w.c3.kafka.ap-southeast-1.amazonaws.com:9096
+  - b-3.bcapi.942x8w.c3.kafka.ap-southeast-1.amazonaws.com:9096
+kafka_username: huian-msk
+kafka_password: f6H0iufEooJ5oVTnXIbz8UG1SsE
+mysql_tb: mysql+mysqldb://root:vDtwSLD7u_N03p6PXa2poU6w3nN0mYPa@huione-blockchain.cxnt8v9v3xhc.ap-southeast-1.rds.amazonaws.com:3306/TronBlock
+mysql_hc: mysql+mysqldb://root:vDtwSLD7u_N03p6PXa2poU6w3nN0mYPa@huione-blockchain.cxnt8v9v3xhc.ap-southeast-1.rds.amazonaws.com:3306/Hui_Collect
+trx_rpc:

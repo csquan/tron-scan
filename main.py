@@ -118,8 +118,9 @@ class Contract(Base):
         return "%s(%r)" % (self.__class__.__name__, self.t_contract_addr)
 
 class UserInfo:
-    def __init__(self,uid):
+    def __init__(self,uid,appId):
         self.f_uid = pd.Series(uid)
+        self.f_app_id = pd.Series(appId)
 
 def Init():
     trxContract.t_decimal = "6"
@@ -612,8 +613,7 @@ def consumer_user_create():
         try:
             user = msg.value
             print("user receive :", user)
-            monitor_dict[user['trx']] = UserInfo(user['uid'])
-            monitor_dict[user['trx']].f_appid = user["app_id"]
+            monitor_dict[user['trx']] = UserInfo(user['uid'],user['app_id'])
         except Exception as e:
             print("解析kafka数据出错", e)
 

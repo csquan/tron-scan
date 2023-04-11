@@ -181,7 +181,7 @@ def KafkaTxLogic(tx, contract_obj, block_num, monitor_dict):
             aa_str = json.dumps(
                 txKafka, default=lambda o: o.__dict__, sort_keys=True, indent=4
             )
-            if kafka_username != "" :
+            if(not kafka_username):
                 producer = KafkaProducer(
                     bootstrap_servers=kafka_server
                 )
@@ -245,7 +245,7 @@ def KafkaMatchTxLogic(tx, transaction, block_num, monitor_hash_dict, logData):
         aa_str = json.dumps(
             txpush, default=lambda o: o.__dict__, sort_keys=True, indent=4
         )
-        if kafka_username != "" :
+        if(not kafka_username):
             producer = KafkaProducer(
                 bootstrap_servers=kafka_server
             )
@@ -591,7 +591,7 @@ def parseTxAndStoreTrc(
     return block_num + 1
 # TODO 优化一个 定时刷新数据库增量数据的任务 防止kafka出错或者没读取到数据
 def consumer_user_create():
-    if kafka_username != "":
+    if(not kafka_username):
         consumer = KafkaConsumer(user_create_topic, group_id='groupTrxSync', bootstrap_servers=kafka_server,
                              auto_offset_reset='earliest',
                              value_deserializer=lambda m: json.loads(m.decode('utf-8')))

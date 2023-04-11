@@ -535,6 +535,8 @@ def parseTxAndStoreTrc(
                                     if "topics" not in log:
                                         continue
                                     topics = log["topics"]
+                                    if len(topics) != 3:
+                                        continue
                                     if topics:
                                         if topics[0] == TransferTopic:  # 转账交易
                                             # 当 mint 的时候没有data, 值在topics[3]

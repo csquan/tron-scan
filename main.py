@@ -613,7 +613,7 @@ def consumer_user_create():
             user = msg.value
             print("user receive :", user)
             monitor_dict[user['trx']] = UserInfo(user['uid'])
-            monitor_dict[user['trx']].f_appid = user.app_id
+            monitor_dict[user['trx']].f_appid = user["app_id"]
         except Exception as e:
             print("解析kafka数据出错", e)
 

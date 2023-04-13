@@ -156,7 +156,7 @@ def KafkaTxLogic(tx, contract_obj, block_num, monitor_dict):
         if tx.t_token_type == 4:  # 本币
             txKafka["amount"] = str(tx.t_amount)
         elif tx.t_token_type == 5:  # trc20代币
-            txKafka["amount"] = str(tx.t_amount * (10 ** int(contract_obj.t_decimal)))
+            txKafka["amount"] = str(tx.t_amount)
         else:
             print("不支持的代币类型：", tx.t_token_type)
             return
